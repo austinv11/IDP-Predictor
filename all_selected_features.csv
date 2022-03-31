@@ -1,0 +1,32 @@
+features,feat_names,disorder_study,disorder_rsq,feature_p,aaindex_study
+QIAN880139,"Weights for coil at the window position of 6 (Qian-Sejnowski, 1988)",False,0.1429246031005852,1.7589944322839724e-21,True
+RICJ880117,"Relative preference value at C' (Richardson-Richardson, 1988)",False,0.15980513479323388,5.2795337770959434e-51,True
+VELV850101,"Electron-ion interaction potential (Veljkovic et al., 1985)",False,0.14145465614569674,6.321868840445752e-19,True
+AURR980104,"Normalized positional residue frequency at helix termini N'(Aurora-Rose, 1998)",True,0.19247731808880442,1.1952764903333652e-109,False
+AURR980109,"Normalized positional residue frequency at helix termini N4 (Aurora-Rose, 1998)",True,0.17439639357875436,6.346614543630377e-77,False
+TANS770102,"Normalized frequency of isolated helix (Tanaka-Scheraga, 1977)",False,0.13571550057085424,6.331678310352348e-09,True
+CHAM830102,"A parameter defined from the residuals obtained from the best correlation of the Chou-Fasman parameter of beta-sheet (Charton-Charton, 1983)",False,0.14013637698783632,1.238330584408699e-16,True
+KARS160120,"Weighted minimum eigenvalue based on the atomic numbers (Karkbara-Knisley, 2016)",False,0.13247573196566553,0.0039056871091926976,True
+OOBM850104,"Optimized average non-bonded energy per atom (Oobatake et al., 1985)",True,0.1860799030811976,5.4475620754434404e-98,False
+TANS770108,"Normalized frequency of zeta R (Tanaka-Scheraga, 1977)",False,0.1316369794222556,0.1838781595968134,True
+WERD780103,"Free energy change of alpha(Ri) to alpha(Rh) (Wertz-Scheraga, 1978)",True,0.13321739988932457,0.00017022573239829645,True
+DAWD720101,"Size (Dawson, 1972)",True,0.15036958010026558,1.8845701730561066e-34,False
+ROBB760112,"Information measure for coil (Robson-Suzuki, 1976)",True,0.1780014972783035,2.1516349388962072e-83,False
+RICJ880104,"Relative preference value at N1 (Richardson-Richardson, 1988)",False,0.13945939729251278,1.863170631131355e-15,True
+GEIM800103,"Alpha-helix indices for beta-proteins (Geisow-Roberts, 1980)",False,0.13230729992273116,0.008109734895749874,True
+JOND920102,"Relative mutability (Jones et al., 1992)",True,0.14111009860861679,2.5110236288316625e-18,False
+ROBB760107,"Information measure for extended without H-bond (Robson-Suzuki, 1976)",False,0.13617102826809369,1.0079772051649153e-09,True
+RACS820107,"Average relative fractional occurrence in A0(i-1) (Rackovsky-Scheraga, 1982)",False,0.1318024634506063,0.08024182686269914,True
+RACS820110,"Average relative fractional occurrence in EL(i-1) (Rackovsky-Scheraga, 1982)",False,0.16645364684375707,9.196401449411302e-63,True
+NAKH920101,"AA composition of CYT of single-spanning proteins (Nakashima-Nishikawa, 1992)",True,0.1787833239925848,8.435948179305251e-85,False
+QIAN880117,"Weights for beta-sheet at the window position of -3 (Qian-Sejnowski, 1988)",False,0.13201909156794656,0.029225367626042317,True
+KLEP840101,"Net charge (Klein et al., 1984)",False,0.13490635940273643,1.6744042385855497e-07,True
+BUNA790103,"Spin-spin coupling constants 3JHalpha-NH (Bundi-Wuthrich, 1979)",False,0.13847336609270233,9.687610015829916e-14,True
+OLSK800101,"Average internal preferences (Olsen, 1980)",True,0.2135316065286642,1.1507786160561058e-148,False
+RICJ880101,"Relative preference value at N' (Richardson-Richardson, 1988)",False,0.13919766621950647,5.3160850753531794e-15,True
+KHAG800101,"The Kerr-constant increments (Khanarian-Moore, 1980)",False,0.132585326558058,0.0024401661998276498,True
+VASM830101,"Relative population of conformational state A (Vasquez et al., 1983)",False,0.14172025897002072,2.18326402764106e-19,True
+FUKS010102,"Surface composition of amino acids in intracellular proteins of mesophiles (percent) (Fukuchi-Nishikawa, 2001)",True,0.21022142483054773,1.830753741048769e-142,False
+QIAN880113,"Weights for alpha-helix at the window position of 6 (Qian-Sejnowski, 1988)",True,0.15468063379627084,5.381408585841666e-42,False
+NOZY710101,"Transfer energy, organic solvent/water (Nozaki-Tanford, 1971)",True,0.28416675878497355,1.4958093649596008e-287,False
+CORJ870103,"PRIFT index (Cornette et al., 1987)",True,0.28919775889327815,5.871065328156169e-298,False
