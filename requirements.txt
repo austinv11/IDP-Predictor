@@ -2,3 +2,4 @@ aaindex
 wget
 matplotlib
 statsmodels
+seaborn
