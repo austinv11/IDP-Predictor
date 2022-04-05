@@ -3,3 +3,5 @@ wget
 matplotlib
 statsmodels
 seaborn
+
+# conda install -c bioconda blast
