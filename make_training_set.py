@@ -24,7 +24,7 @@ def main():
     download_json()
 
     with open("disprot.json", 'rb') as f:
-        disprot = json.load(f)['data'][:1000]
+        disprot = json.load(f)['data']
 
     os.makedirs("dataset", exist_ok=True)
 
