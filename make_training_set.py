@@ -24,7 +24,7 @@ def main():
     download_json()
 
     with open("disprot.json", 'rb') as f:
-        disprot = json.load(f)['data']
+        disprot = json.load(f)['data'][:1000]
 
     os.makedirs("dataset", exist_ok=True)
 
@@ -177,7 +177,7 @@ def main():
             test_cluster = seq2cluster[test_seqs[i]]
             if test_cluster in train_clusters:
                 removed.append(test_seqs[i])
-        print("Tossing out {} of the {} sequences due to cluster overlap".format(len(removed), len(test_seqs)))
+        print("Tossing out {} of the {} sequences due to cluster overlap with the training set".format(len(removed), len(test_seqs)))
 
         with open(osp.join("dataset", "train_split.csv"), "w") as f:
             f.write("sequence,test")
@@ -209,8 +209,17 @@ def main():
             split = l.split(",")
             seq2split[split[0]] = int(split[1])
 
+    total_seqs = len(seq2split)
+    curr_seqs = 1
     for prot in disprot:
         acc = prot['acc']
+        # Make sure its not dropped
+        if acc not in seq2split:
+            continue
+
+        print("## Generating features for {} ({}/{})".format(acc, curr_seqs, total_seqs))
+        curr_seqs += 1
+
         output_dir = train_dir if seq2split[acc] == 0 else test_dir
         output_file = osp.join(output_dir, acc)
 
