@@ -19,7 +19,7 @@ def download_json():
 
 
 def main():
-    TRAIN_SPLIT = 0.75
+    TRAIN_SPLIT = 0.7
 
     download_json()
 
@@ -43,29 +43,87 @@ def main():
 
         # We are gonna use psi-cd-hit to cluster the sequences
         # So that we an use a lower threshold for the clustering
-        cmd = "psi-cd-hit.pl "
-
-        args = {
+        # Following recommendations from here to do iterative clustering:
+        # https://github.com/weizhongli/cdhit/wiki/3.-User's-Guide#protein-clustering
+        cdhitcmd = "cd-hit "
+        cdhit_args = {
             # Input file
             '-i': "sequences.fasta",
+            # Output database
+            '-o': "preclust90",
+            # Identity
+            '-c': 0.9,
+            # Word Size
+            '-n': 5,
+            # Accurate mode
+            '-g': 1,
+            # Local coverage mode
+            '-G': 0,
+            # Alignment coverage required for shorter sequence
+            '-aS': 0.8,
+            # Disable fasta output from cluster file
+            '-d': 0,
+            # Print alignment overlap
+            '-p': 1,
+            # Threads
+            '-T': 2,
+            # Unlimited memory
+            '-M': 0
+        }
+        cdhitcmd90 = cdhitcmd + " ".join([f"{k} {v}" for k, v in cdhit_args.items()])
+
+        cdhit_args['-i'] = "preclust90"
+        cdhit_args['-o'] = "preclust60"
+        cdhit_args['-c'] = 0.6
+        cdhit_args['-n'] = 4
+        cdhitcmd60 = cdhitcmd + " ".join([f"{k} {v}" for k, v in cdhit_args.items()])
+
+        psicmd = "psi-cd-hit.pl "
+        psiargs = {
+            # Input database
+            '-i': "preclust60",
             # Output name
-            '-o': "clusters",
+            '-o': "preclust25",
             # Clustering threshold
             '-c': 0.25,
             # Threads per blast job
             '-blp': 2
         }
+        psicmd += " ".join([f"{k} {v}" for k, v in psiargs.items()])
+
+        # hierachical clustering
+        clust_rev_cmd = "clstr_rev.pl {}.clstr {}.clstr > {}.clstr"
 
         # Not available on windows, run through WSL
         if sys.platform == "win32":
-            cmd = "wsl.exe " + cmd
+            psicmd = "wsl.exe " + psicmd
+            cdhitcmd90 = "wsl.exe " + cdhitcmd90
+            cdhitcmd60 = "wsl.exe " + cdhitcmd60
+            clust_rev_cmd = "wsl.exe " + clust_rev_cmd
 
-        cmd += " ".join([f"{k} {v}" for k, v in args.items()])
+        clust_rev_cmd1 = clust_rev_cmd.format("preclust90", "preclust60", "preclust90-60")
+        clust_rev_cmd2 = clust_rev_cmd.format("preclust90-60", "preclust25", "clusters")
+
+        print(f"Pre-Clustering at 90% identity...")
+        print(cdhitcmd90)
+        subprocess.call(cdhitcmd90, shell=True, cwd=temp_dir)
+
+        print(f"Pre-Clustering at 60% identity...")
+        print(cdhitcmd60)
+        subprocess.call(cdhitcmd60, shell=True, cwd=temp_dir)
 
         print(f"Running PSI-CD-HIT:")
-        print(cmd)
+        print(psicmd)
+        subprocess.call(psicmd, shell=True, cwd=temp_dir)
 
-        subprocess.call(cmd, shell=True, cwd=temp_dir)
+        print("Combining Clusters...")
+
+        print(clust_rev_cmd1)
+        subprocess.call(clust_rev_cmd1, shell=True, cwd=temp_dir)
+        print(clust_rev_cmd2)
+        subprocess.call(clust_rev_cmd2, shell=True, cwd=temp_dir)
+
+        print("Reading Cluster output!")
 
         # Parse clusters
         with open(osp.join(temp_dir, "clusters.clstr"), "r") as fin:
