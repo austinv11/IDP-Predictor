@@ -132,21 +132,16 @@ def make_secondary_structs(sequence):
     return output.decode("utf-8")  # Psi-pred output
 
 
-def main():
-    if len(sys.argv) < 3:
-        print("Usage: python3 protein_feature_extractor.py <run_name> <protein_sequence> <IDP_range1> <IDP_range2> ...")
-        sys.exit(1)
-
-    output_file = sys.argv[1].strip()
-    sequence = sys.argv[2].upper().strip()
-    idp_ranges = sys.argv[3:]
-
+def extract_features(output_file, sequence, idp_ranges):
     # Expand IDP ranges to flat list of positions
     # Note, these ranges are 1-indexed, inclusive
     idp_positions = []
     for idp_range in idp_ranges:
-        start, end = idp_range.split("-")
-        idp_positions += list(range(int(start), int(end)+1))
+        split_range = idp_range.split("-")
+        idp_positions += list(range(int(split_range[0]), int(split_range[1])+1))
+
+    positions = [i for i in range(1, len(sequence)+1)]
+    disordered_labels = [int(i in idp_positions) for i in positions]
 
     if len([a for a in sequence if a not in AA_INDEX_AAs]) > 0:
         print("WARNING: Non-standard amino acid(s) found in sequence, this can effect feature output.")
@@ -243,9 +238,6 @@ def main():
         for aa in sequence:
             feat2vals[feat].append(float(values.get(aa, MISSING_VAL)))
 
-    positions = [i for i in range(1, len(sequence)+1)]
-    disordered_labels = [int(i in idp_positions) for i in positions]
-
     feature_dict = {
         'is_disordered': disordered_labels,
         'position': positions,
@@ -262,9 +254,15 @@ def main():
         feature_dict[psipred_column] = [row[i] for row in psipred_data]
 
     final_df = pd.DataFrame(feature_dict)
-    final_df.to_csv(output_file + ".csv", index=False)
+    #final_df.to_csv(output_file + ".csv", index=False)
     final_df.to_parquet(output_file + ".parquet", index=False, compression="brotli")
 
 
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) < 3:
+        print("Usage: python3 protein_feature_extractor.py <output_location> <protein_sequence> <IDP_range1> <IDP_range2> ...")
+        sys.exit(1)
+
+    output_file = sys.argv[1].strip()
+    sequence = sys.argv[2].upper().strip()
+    idp_ranges = sys.argv[3:]
