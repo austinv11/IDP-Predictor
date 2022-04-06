@@ -172,21 +172,21 @@ def main():
                 seq2cluster[split[0]] = cluster
                 index += 1
 
-        removed = []
+        validation_seqs = []
         for i in range(len(test_seqs)):
             test_cluster = seq2cluster[test_seqs[i]]
             if test_cluster in train_clusters:
-                removed.append(test_seqs[i])
-        print("Tossing out {} of the {} sequences due to cluster overlap with the training set".format(len(removed), len(test_seqs)))
+                validation_seqs.append(test_seqs[i])
+        print("Moving {} of the {} sequences from the test set to the validation set due to cluster overlap with the training set".format(len(removed), len(test_seqs)))
 
+        # 0 = train, 1 = test, 2 = validation
         with open(osp.join("dataset", "train_split.csv"), "w") as f:
-            f.write("sequence,test")
+            f.write("sequence,split")
             for seq in train_seqs:
                 f.write(f"\n{seq},0")
             for seq in test_seqs:
-                if seq in removed:
-                    continue
-                f.write(f"\n{seq},1")
+                validation = seq in validation_seqs
+                f.write(f"\n{seq},{1 + int(validation)}")
 
     else:
         print("Test/train split already generated, skipping split generation...")
@@ -194,8 +194,10 @@ def main():
     print("Generating features for the sequences... This can take a while!")
     train_dir = osp.join("dataset", "train")
     test_dir = osp.join("dataset", "test")
+    validation_dir = osp.join("dataset", "validation")
     os.makedirs(train_dir, exist_ok=True)
     os.makedirs(test_dir, exist_ok=True)
+    os.makedirs(validation_dir, exist_ok=True)
 
     # Generate features for the sequences
     seq2split = dict()  # Map sequence to split, 1 = test, 0 = train
@@ -220,8 +222,13 @@ def main():
         print("## Generating features for {} ({}/{})".format(acc, curr_seqs, total_seqs))
         curr_seqs += 1
 
-        output_dir = train_dir if seq2split[acc] == 0 else test_dir
-        output_file = osp.join(output_dir, acc)
+        if seq2split[acc] == 0:
+            out_dir = train_dir
+        elif seq2split[acc] == 1:
+            out_dir = test_dir
+        else:
+            out_dir = validation_dir
+        output_file = osp.join(out_dir, acc)
 
         # Generate features
         if not osp.exists(output_file + ".parquet"):
