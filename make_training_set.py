@@ -45,11 +45,11 @@ def main():
 
         args = {
             # Input file
-            '-i ': "sequences.fasta",
+            '-i': "sequences.fasta",
             # Output name
-            '-o ': "clusters",
+            '-o': "clusters",
             # Clustering threshold
-            '-c ': 0.25,
+            '-c': 0.25,
             # Threads per blast job
             '-blp': 2
         }
