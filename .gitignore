@@ -241,3 +241,7 @@ cython_debug/
 
 # Project specific
 disprot.tsv
+disprot.json
+blastdb/
+s4pred-main/
+tmp/

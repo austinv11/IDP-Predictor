@@ -3,5 +3,8 @@ wget
 matplotlib
 statsmodels
 seaborn
+fastparquet
 
 # conda install -c bioconda blast
+# conda install -c bioconda cd-hit
+# conda install pytorch torchvision torchaudio cpuonly -c pytorch

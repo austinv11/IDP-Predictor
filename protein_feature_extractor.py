@@ -3,8 +3,10 @@ import os
 import shutil
 import subprocess
 import sys
+import tarfile
 import time
 import os.path as osp
+from zipfile import ZipFile
 
 import pandas as pd
 import wget
@@ -60,7 +62,7 @@ def psiblast_arg_builder(sequence):
 def make_pssm(sequence):
     timestamp = time.time()
     tmp_dir = osp.join("tmp", f"psiblast_{timestamp}")
-    os.makedirs(tmp_dir)
+    os.makedirs(tmp_dir, exist_ok=True)
     with open(osp.join(tmp_dir, "query.fasta"), "w") as f:
         f.write(f">query\n{sequence}\n")
 
@@ -71,10 +73,13 @@ def make_pssm(sequence):
         return
 
     if not osp.exists('blastdb'):
+        print("Need to prepare BLAST database, this will take a long time!")
         print("Downloading BLAST database...")
-        os.makedirs('blastdb')
-        # TODO Compare TrEMBL and SwissProt
+        os.makedirs('blastdb', exist_ok=True)
+        # TrEMBL is way slower than SwissProt, so we'll use SwissProt
+        # Smaller swiss prot database
         SWISS_PROT = "ftp://ftp.uniprot.org/pub/databases/uniprot/current_release/knowledgebase/complete/uniprot_sprot.fasta.gz"
+        # Bigger trembl database
         TrEMBL = "ftp://ftp.uniprot.org/pub/databases/uniprot/current_release/knowledgebase/complete/uniprot_trembl.fasta.gz"
         wget.download(SWISS_PROT, osp.join("blastdb", "uniprot_sprot.fasta.gz"))
         print("Unzipping...")
@@ -97,32 +102,138 @@ def make_pssm(sequence):
     return tmp_dir
 
 
+def make_secondary_structs(sequence):
+    # Using s4pred as a lightweight secondary structure prediction tool
+    # In the future we may want to use psipred instead (difficult to install)
+
+    if not osp.exists("s4pred-main"):
+        print("Downloading S4PRED...")
+        os.makedirs("tmp", exist_ok=True)
+        wget.download("https://github.com/psipred/s4pred/archive/refs/heads/main.zip", osp.join("tmp", "s4pred.zip"))
+        with ZipFile(osp.join("tmp", "s4pred.zip"), "r") as zip_ref:
+            zip_ref.extractall()
+        os.remove(osp.join("tmp", "s4pred.zip"))
+        print("Downloading S4PRED weights...")
+        wget.download("http://bioinfadmin.cs.ucl.ac.uk/downloads/s4pred/weights.tar.gz", osp.join("s4pred-main", "weights.tar.gz"))
+        with tarfile.open(osp.join("s4pred-main", "weights.tar.gz"), "r:gz") as tar:
+            tar.extractall("s4pred-main")
+        os.remove(osp.join("s4pred-main", "weights.tar.gz"))
+
+    timestamp = time.time()
+    tmp_file = osp.join("tmp", f"s4pred_{timestamp}.fasta")
+    with open(tmp_file, "w") as f:
+        f.write(f">query\n{sequence}\n")
+
+    proc = subprocess.Popen(['python', osp.join('s4pred-main', 'run_model.py'), tmp_file], stdout=subprocess.PIPE)
+    output = proc.communicate()[0]
+
+    os.remove(tmp_file)
+
+    return output.decode("utf-8")  # Psi-pred output
+
+
 def main():
     if len(sys.argv) < 3:
-        print("Usage: python3 protein_feature_extractor.py <output_name.csv> <protein_sequence>")
+        print("Usage: python3 protein_feature_extractor.py <run_name> <protein_sequence> <IDP_range1> <IDP_range2> ...")
         sys.exit(1)
 
-    output_file = sys.argv[2].strip()
+    output_file = sys.argv[1].strip()
     sequence = sys.argv[2].upper().strip()
+    idp_ranges = sys.argv[3:]
+
+    # Expand IDP ranges to flat list of positions
+    # Note, these ranges are 1-indexed, inclusive
+    idp_positions = []
+    for idp_range in idp_ranges:
+        start, end = idp_range.split("-")
+        idp_positions += list(range(int(start), int(end)+1))
 
     if len([a for a in sequence if a not in AA_INDEX_AAs]) > 0:
         print("WARNING: Non-standard amino acid(s) found in sequence, this can effect feature output.")
 
-    # Psi blast to make PSSM
+    # Psi-blast to make PSSM
     pssm_dir = make_pssm(sequence)
     pssm_file = osp.join(pssm_dir, "response.ascii_pssm")
+    pssm_aas = ['A', 'R', 'N', 'D', 'C', 'Q', 'E', 'G', 'H', 'I', 'L', 'K', 'M', 'F', 'P', 'S', 'T', 'W', 'Y', 'V']
+    pssm_columns = [aa + '_Score' for aa in pssm_aas] + [aa + '_WeightedScore' for aa in pssm_aas] +\
+                   ['InformationPerPos', 'RelativeWeightedMatches', 'K_StdUngapped', 'Lambda_StdUngapped',
+                    'K_StdGapped', 'Lambda_StdGapped', 'K_PsiUngapped', 'Lambda_PsiUngapped',
+                    'K_PsiGapped', 'Lambda_PsiGapped']
+
+    std_ungapped = None
+    std_gapped = None
+    psi_ungapped = None
+    psi_gapped = None
+    pssm_data = []
     with open(pssm_file, "r") as f:
+        parsing_matrix = True
+        last_pos = 1
         for l in f:
             l = l.strip()
-            ...
-        # Note, broadcast kappa and lambda to every row since it is at the end for the protein as a whole
+            if parsing_matrix:
+                if len(l) == 0 and len(pssm_data) > 0:
+                    parsing_matrix = False
+                else:
+                    split_line = l.split()
+                    try:
+                        curr_pos = int(split_line[0])  # Need to see if psiblast skips positions
+                        assert curr_pos > 0
+                    except:
+                        continue  # Skip this line since it didnt start with a position
+                    if curr_pos != last_pos+1:
+                        # Zero-fill the missing positions
+                        for i in range(last_pos, curr_pos):
+                            pssm_data.append([0.0] * (len(pssm_columns)-8))
+                    pssm_data.append([float(a) for a in l.split()[2:]])  # Skip the position and letter
+
+                    last_pos = curr_pos
+            else:
+                if not (l.startswith('Standard') or l.startswith('PSI')):
+                    continue
+                # Note, broadcast kappa and lambda to every row since it is at the end for the protein as a whole
+                split = l.split()
+                K = float(split[2])  # Lines start with 2 words
+                Lambda = float(split[3])
+                if l.startswith('Standard Ungapped'):
+                    std_ungapped = (K, Lambda)
+                elif l.startswith('Standard Gapped'):
+                    std_gapped = (K, Lambda)
+                elif l.startswith('PSI Ungapped'):
+                    psi_ungapped = (K, Lambda)
+                elif l.startswith('PSI Gapped'):
+                    psi_gapped = (K, Lambda)
+                else:
+                    raise AssertionError("Unknown line: " + l)
+
+    # Insert the kappa and lambda values
+    for i in range(len(pssm_data)):
+        pssm_data[i] = pssm_data[i] + [std_ungapped[0], std_ungapped[1], std_gapped[0], std_gapped[1],
+                                       psi_ungapped[0], psi_ungapped[1], psi_gapped[0], psi_gapped[1]]
 
     # Delete pssm dir after parsing output
     shutil.rmtree(pssm_dir)
 
-    # TODO: Get secondary structure predictions
+    # S4Pred for secondary structure prediction
+    psipred_matrix = make_secondary_structs(sequence)
+    # Now, parse the psipred format output
+    psipred_data = []
+    psipred_columns = ['coil_prob', 'helix_prob', 'sheet_prob']
+    last_pos = 0
+    for l in psipred_matrix.splitlines():
+        l = l.strip()
+        if len(l) == 0 or l.startswith('#'):
+            continue
+        split = l.split()
+        curr_pos = int(split[0])
+        if curr_pos != last_pos+1:
+            # Zero-fill the missing positions
+            for i in range(last_pos, curr_pos):
+                psipred_data.append([0.0] * len(psipred_columns))
+        last_pos = curr_pos
+        psipred_data.append([float(a) for a in split[3:]])
 
-    # Selected feature subsets
+    # Selected feature subsets for biochemical properties
+    # AAIndex1
     aa_feature_df = pd.read_csv("all_selected_features.csv", header=0)
     feat2vals = dict()
     features = list(aa_feature_df.features.values)
@@ -130,10 +241,29 @@ def main():
         feat2vals[feat] = []
         values = aaindex[feat]['values']
         for aa in sequence:
-            feat2vals[feat].append(values.get(aa, MISSING_VAL))
+            feat2vals[feat].append(float(values.get(aa, MISSING_VAL)))
 
-    final_df = pd.DataFrame(list(sequence) + [feat2vals[feat] for feat in features], index=["sequence"] + features)
-    final_df.to_csv(output_file, index=False)
+    positions = [i for i in range(1, len(sequence)+1)]
+    disordered_labels = [int(i in idp_positions) for i in positions]
+
+    feature_dict = {
+        'is_disordered': disordered_labels,
+        'position': positions,
+        'sequence': list(sequence),
+    }
+
+    for feat in features:
+        feature_dict[feat] = feat2vals[feat]
+
+    for i, pssm_column in enumerate(pssm_columns):
+        feature_dict[pssm_column] = [row[i] for row in pssm_data]
+
+    for i, psipred_column in enumerate(psipred_columns):
+        feature_dict[psipred_column] = [row[i] for row in psipred_data]
+
+    final_df = pd.DataFrame(feature_dict)
+    final_df.to_csv(output_file + ".csv", index=False)
+    final_df.to_parquet(output_file + ".parquet", index=False, compression="brotli")
 
 
 if __name__ == "__main__":
