@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import sys
 import time
+import traceback
 
 import numpy as np
 import wget
@@ -16,6 +17,17 @@ def download_json():
     if not osp.exists("disprot.json"):
         print("Downloading complete DisProt database...")
         wget.download("https://disprot.org/api/search?release=2022_03&show_ambiguous=true&show_obsolete=false&format=json", "disprot.json")
+
+# Ontology annotations
+LINKER = ['IDPO:00501', 'IDPO:00502']
+PROTEIN_BINDING = ['GO:0005515', ]
+NUCLEIC_ACID_BINDING = ['GO:0008301', 'GO:0003676', 'GO:0003677', 'GO:0003697', 'GO:0003723', 'GO:0003727',
+                        'GO:0003729', 'GO:0019843', 'GO:0000049']
+GENERIC_BINDING = PROTEIN_BINDING + NUCLEIC_ACID_BINDING + ['GO:0005488']
+# TODO: Download IDPO and GO ontologies,
+# Use pronto package to parse them
+# fill in all children of the listed terms
+# Make output feature matrix have separate columns for each category
 
 
 def main():
@@ -177,7 +189,7 @@ def main():
             test_cluster = seq2cluster[test_seqs[i]]
             if test_cluster in train_clusters:
                 validation_seqs.append(test_seqs[i])
-        print("Moving {} of the {} sequences from the test set to the validation set due to cluster overlap with the training set".format(len(removed), len(test_seqs)))
+        print("Moving {} of the {} sequences from the test set to the validation set due to cluster overlap with the training set".format(len(validation_seqs), len(test_seqs)))
 
         # 0 = train, 1 = test, 2 = validation
         with open(osp.join("dataset", "train_split.csv"), "w") as f:
@@ -241,7 +253,12 @@ def main():
 
             print("Getting features for {}...".format(acc))
 
-            extract_features(output_file, seq, idp_regions)
+            try:
+                extract_features(output_file, seq, idp_regions)
+            except Exception as e:
+                print(f"Failed to generate features for {acc}: {e}")
+                traceback.print_exc()
+                continue
 
 
 if __name__ == "__main__":
