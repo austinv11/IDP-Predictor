@@ -245,3 +245,4 @@ disprot.json
 blastdb/
 s4pred-main/
 tmp/
+*.obo

@@ -9,6 +9,7 @@ import traceback
 
 import numpy as np
 import wget
+from pronto import Ontology
 
 from protein_feature_extractor import extract_features
 
@@ -17,23 +18,51 @@ def download_json():
     if not osp.exists("disprot.json"):
         print("Downloading complete DisProt database...")
         wget.download("https://disprot.org/api/search?release=2022_03&show_ambiguous=true&show_obsolete=false&format=json", "disprot.json")
+    if not osp.exists("idpo.obo"):
+        print("Downloading complete IDPO database...")
+        wget.download("https://disprot.org/assets/data/IDPO_v0.3.0.obo", "idpo.obo")
+    if not osp.exists("go.obo"):
+        print("Downloading complete GO database...")
+        wget.download("http://purl.obolibrary.org/obo/go.obo", "go.obo")
 
-# Ontology annotations
-LINKER = ['IDPO:00501', 'IDPO:00502']
-PROTEIN_BINDING = ['GO:0005515', ]
-NUCLEIC_ACID_BINDING = ['GO:0008301', 'GO:0003676', 'GO:0003677', 'GO:0003697', 'GO:0003723', 'GO:0003727',
-                        'GO:0003729', 'GO:0019843', 'GO:0000049']
-GENERIC_BINDING = PROTEIN_BINDING + NUCLEIC_ACID_BINDING + ['GO:0005488']
 # TODO: Download IDPO and GO ontologies,
 # Use pronto package to parse them
 # fill in all children of the listed terms
 # Make output feature matrix have separate columns for each category
 
 
+def fill_in_terms(ontology, term_list):
+    for term_id in list(term_list):
+        term = ontology[term_id]
+        for child in term.subclasses(with_self=False):
+            child_id = child.id
+            if child_id not in term_list:
+                term_list.append(child_id)
+    return term_list
+
+
 def main():
     TRAIN_SPLIT = 0.7
 
     download_json()
+
+    # Ontology annotations
+    LINKER = ['IDPO:00501', 'IDPO:00502']
+    PROTEIN_BINDING = ['GO:0005515']
+    NUCLEIC_ACID_BINDING = ['GO:0008301', 'GO:0003676', 'GO:0003677', 'GO:0003697', 'GO:0003723', 'GO:0003727',
+                            'GO:0003729', 'GO:0019843', 'GO:0000049']
+    GENERIC_BINDING = PROTEIN_BINDING + NUCLEIC_ACID_BINDING + ['GO:0005488']
+
+    # Load ontologies
+    idpo = Ontology("idpo.obo")
+    # Linkers are the only ones that IDPO terms
+    LINKER = fill_in_terms(idpo, LINKER)
+    del idpo
+    go = Ontology("go.obo")
+    PROTEIN_BINDING = fill_in_terms(go, PROTEIN_BINDING)
+    NUCLEIC_ACID_BINDING = fill_in_terms(go, NUCLEIC_ACID_BINDING)
+    GENERIC_BINDING = fill_in_terms(go, GENERIC_BINDING)
+    del go
 
     with open("disprot.json", 'rb') as f:
         disprot = json.load(f)['data']

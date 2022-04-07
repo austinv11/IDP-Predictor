@@ -4,6 +4,7 @@ matplotlib
 statsmodels
 seaborn
 fastparquet
+pronto
 
 # conda install -c bioconda blast
 # conda install -c bioconda cd-hit

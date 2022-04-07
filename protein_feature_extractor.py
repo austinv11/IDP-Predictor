@@ -259,8 +259,10 @@ def extract_features(output_file, sequence, idp_ranges):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 3:
+    if len(sys.argv) < 3 or 'help' in sys.argv[1]:
         print("Usage: python3 protein_feature_extractor.py <output_location> <protein_sequence> <IDP_range1> <IDP_range2> ...")
+        print("Example IDP ranges: 1-10 12-20 22-30")
+        print("Example Linker, Protein Binding, Nucleic Acid Binding, and Generic Binding ranges: linker:10-15 protein:60-70 nucleic:30-40 binding:55-60")
         sys.exit(1)
 
     output_file = sys.argv[1].strip()
