@@ -81,6 +81,8 @@ def make_pssm(sequence):
         SWISS_PROT = "ftp://ftp.uniprot.org/pub/databases/uniprot/current_release/knowledgebase/complete/uniprot_sprot.fasta.gz"
         # Bigger trembl database
         TrEMBL = "ftp://ftp.uniprot.org/pub/databases/uniprot/current_release/knowledgebase/complete/uniprot_trembl.fasta.gz"
+        # Mid-sized database, much bigger than SWISS PROT but smaller than TREMBL
+        UNIREF = "ftp://ftp.uniprot.org/pub/databases/uniprot/uniref/uniref50/uniref50.fasta.gz"
         wget.download(SWISS_PROT, osp.join("blastdb", "uniprot_sprot.fasta.gz"))
         print("Unzipping...")
         with gzip.open(osp.join("blastdb", "uniprot_sprot.fasta.gz"), "rb") as f_in:
@@ -136,12 +138,31 @@ def extract_features(output_file, sequence, idp_ranges):
     # Expand IDP ranges to flat list of positions
     # Note, these ranges are 1-indexed, inclusive
     idp_positions = []
+    linker_positions = []
+    protein_binding_positions = []
+    nucleic_binding_positions = []
+    generic_binding_positions = []
     for idp_range in idp_ranges:
-        split_range = idp_range.split("-")
-        idp_positions += list(range(int(split_range[0]), int(split_range[1])+1))
+        split_tag = idp_range.split(":")
+        split_range = split_tag[-1].split("-")
+        tag = split_tag[0].lower()
+        positions = list(range(int(split_range[0]), int(split_range[1])+1))
+        if 'linker' in tag:
+            linker_positions += positions
+        elif 'protein' in tag:
+            protein_binding_positions += positions
+        elif 'nucleic' in tag:
+            nucleic_binding_positions += positions
+        elif 'binding' in tag:
+            generic_binding_positions += positions
+        idp_positions += positions
 
     positions = [i for i in range(1, len(sequence)+1)]
     disordered_labels = [int(i in idp_positions) for i in positions]
+    generic_binding_labels = [int(i in generic_binding_positions) for i in positions]
+    linker_labels = [int(i in linker_positions) for i in positions]
+    protein_binding_labels = [int(i in protein_binding_positions) for i in positions]
+    nucleic_binding_labels = [int(i in nucleic_binding_positions) for i in positions]
 
     if len([a for a in sequence if a not in AA_INDEX_AAs]) > 0:
         print("WARNING: Non-standard amino acid(s) found in sequence, this can effect feature output.")
@@ -239,7 +260,14 @@ def extract_features(output_file, sequence, idp_ranges):
             feat2vals[feat].append(float(values.get(aa, MISSING_VAL)))
 
     feature_dict = {
+        # Class Labels
         'is_disordered': disordered_labels,
+        'is_binding': generic_binding_labels,
+        'is_linker': linker_labels,
+        'is_protein_binding': protein_binding_labels,
+        'is_nucleic_acid_binding': nucleic_binding_labels,
+
+        # Sequence Features
         'position': positions,
         'sequence': list(sequence),
     }

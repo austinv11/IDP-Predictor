@@ -21,14 +21,17 @@ def download_json():
     if not osp.exists("idpo.obo"):
         print("Downloading complete IDPO database...")
         wget.download("https://disprot.org/assets/data/IDPO_v0.3.0.obo", "idpo.obo")
+        # My parser doesn't like the format of this obo file. So we need to fix it
+        with open("idpo.obo", "r") as f:
+            lines = f.readlines()
+        with open("idpo.obo", "w") as f:
+            for line in lines:
+                if line.strip().startswith('def: ') and not line.endswith(']'):
+                    line = line.replace("\n", "") + " []\n"
+                f.write(line)
     if not osp.exists("go.obo"):
         print("Downloading complete GO database...")
         wget.download("http://purl.obolibrary.org/obo/go.obo", "go.obo")
-
-# TODO: Download IDPO and GO ontologies,
-# Use pronto package to parse them
-# fill in all children of the listed terms
-# Make output feature matrix have separate columns for each category
 
 
 def fill_in_terms(ontology, term_list):
@@ -254,6 +257,7 @@ def main():
 
     total_seqs = len(seq2split)
     curr_seqs = 1
+    failed = []
     for prot in disprot:
         acc = prot['acc']
         # Make sure its not dropped
@@ -279,15 +283,28 @@ def main():
             idp_regions = set()
             for region in prot['disprot_consensus']['full']:
                 idp_regions.add(f"{region['start']}-{region['end']}")
+            for region in prot['regions']:
+                term = region['term_id']
+                if term in LINKER:
+                    idp_regions.add(f"linker:{region['start']}-{region['end']}")
+                if term in GENERIC_BINDING:
+                    idp_regions.add(f"binding:{region['start']}-{region['end']}")
+                if term in PROTEIN_BINDING:
+                    idp_regions.add(f"protein:{region['start']}-{region['end']}")
+                if term in NUCLEIC_ACID_BINDING:
+                    idp_regions.add(f"nucleic:{region['start']}-{region['end']}")
 
             print("Getting features for {}...".format(acc))
 
             try:
                 extract_features(output_file, seq, idp_regions)
             except Exception as e:
+                failed.append(acc)
                 print(f"Failed to generate features for {acc}: {e}")
                 traceback.print_exc()
                 continue
+
+    print("FAILED ACCESSION NUMBERS: ", ", ".join(failed))
 
 
 if __name__ == "__main__":
