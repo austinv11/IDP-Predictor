@@ -6,6 +6,7 @@ import sys
 import tarfile
 import time
 import os.path as osp
+from statistics import mean
 from zipfile import ZipFile
 
 import pandas as pd
@@ -13,7 +14,20 @@ import wget
 from aaindex.aaindex import aaindex
 
 AA_INDEX_AAs = "ALRKNMDFCPQSETGWHYIV"
-MISSING_VAL = "NA"
+MISSING_VAL = "X"
+# https://en.wikipedia.org/wiki/FASTA_format#Sequence_representation
+AMBIGUOUS_TO_POSSIBLE = {
+    "B": ['D', 'N'],
+    "J": ['I', "L"],
+    "Z": ['E', 'Q'],
+    "O": ['K'],
+    "U": ['C'],
+    "X": list(AA_INDEX_AAs),
+}
+
+
+def eprint(*args, **kwargs):
+    print(*args, file=sys.stderr, **kwargs)
 
 
 def psiblast_arg_builder(sequence):
@@ -165,7 +179,7 @@ def extract_features(output_file, sequence, idp_ranges):
     nucleic_binding_labels = [int(i in nucleic_binding_positions) for i in positions]
 
     if len([a for a in sequence if a not in AA_INDEX_AAs]) > 0:
-        print("WARNING: Non-standard amino acid(s) found in sequence, this can effect feature output.")
+        eprint("WARNING: Non-standard amino acid(s) found in sequence, this can effect feature output.")
 
     # Psi-blast to make PSSM
     pssm_dir = make_pssm(sequence)
@@ -181,50 +195,55 @@ def extract_features(output_file, sequence, idp_ranges):
     psi_ungapped = None
     psi_gapped = None
     pssm_data = []
-    with open(pssm_file, "r") as f:
-        parsing_matrix = True
-        last_pos = 1
-        for l in f:
-            l = l.strip()
-            if parsing_matrix:
-                if len(l) == 0 and len(pssm_data) > 0:
-                    parsing_matrix = False
-                else:
-                    split_line = l.split()
-                    try:
-                        curr_pos = int(split_line[0])  # Need to see if psiblast skips positions
-                        assert curr_pos > 0
-                    except:
-                        continue  # Skip this line since it didnt start with a position
-                    if curr_pos != last_pos+1:
-                        # Zero-fill the missing positions
-                        for i in range(last_pos, curr_pos):
-                            pssm_data.append([0.0] * (len(pssm_columns)-8))
-                    pssm_data.append([float(a) for a in l.split()[2:]])  # Skip the position and letter
+    if osp.exists(pssm_file):
+        with open(pssm_file, "r") as f:
+            parsing_matrix = True
+            last_pos = 1
+            for l in f:
+                l = l.strip()
+                if parsing_matrix:
+                    if len(l) == 0 and len(pssm_data) > 0:
+                        parsing_matrix = False
+                    else:
+                        split_line = l.split()
+                        try:
+                            curr_pos = int(split_line[0])  # Need to see if psiblast skips positions
+                            assert curr_pos > 0
+                        except:
+                            continue  # Skip this line since it didnt start with a position
+                        if curr_pos != last_pos+1:
+                            # Zero-fill the missing positions
+                            for i in range(last_pos, curr_pos):
+                                pssm_data.append([0.0] * (len(pssm_columns)-8))
+                        pssm_data.append([float(a) for a in l.split()[2:]])  # Skip the position and letter
 
-                    last_pos = curr_pos
-            else:
-                if not (l.startswith('Standard') or l.startswith('PSI')):
-                    continue
-                # Note, broadcast kappa and lambda to every row since it is at the end for the protein as a whole
-                split = l.split()
-                K = float(split[2])  # Lines start with 2 words
-                Lambda = float(split[3])
-                if l.startswith('Standard Ungapped'):
-                    std_ungapped = (K, Lambda)
-                elif l.startswith('Standard Gapped'):
-                    std_gapped = (K, Lambda)
-                elif l.startswith('PSI Ungapped'):
-                    psi_ungapped = (K, Lambda)
-                elif l.startswith('PSI Gapped'):
-                    psi_gapped = (K, Lambda)
+                        last_pos = curr_pos
                 else:
-                    raise AssertionError("Unknown line: " + l)
+                    if not (l.startswith('Standard') or l.startswith('PSI')):
+                        continue
+                    # Note, broadcast kappa and lambda to every row since it is at the end for the protein as a whole
+                    split = l.split()
+                    K = float(split[2])  # Lines start with 2 words
+                    Lambda = float(split[3])
+                    if l.startswith('Standard Ungapped'):
+                        std_ungapped = (K, Lambda)
+                    elif l.startswith('Standard Gapped'):
+                        std_gapped = (K, Lambda)
+                    elif l.startswith('PSI Ungapped'):
+                        psi_ungapped = (K, Lambda)
+                    elif l.startswith('PSI Gapped'):
+                        psi_gapped = (K, Lambda)
+                    else:
+                        raise AssertionError("Unknown line: " + l)
 
-    # Insert the kappa and lambda values
-    for i in range(len(pssm_data)):
-        pssm_data[i] = pssm_data[i] + [std_ungapped[0], std_ungapped[1], std_gapped[0], std_gapped[1],
-                                       psi_ungapped[0], psi_ungapped[1], psi_gapped[0], psi_gapped[1]]
+        # Insert the kappa and lambda values
+        for i in range(len(pssm_data)):
+            pssm_data[i] = pssm_data[i] + [std_ungapped[0], std_ungapped[1], std_gapped[0], std_gapped[1],
+                                           psi_ungapped[0], psi_ungapped[1], psi_gapped[0], psi_gapped[1]]
+    else:
+        # PSSM FAILED
+        eprint("WARNING: PSSM failed, using default values")
+        pssm_data = [[0.0] * len(pssm_columns)] * len(sequence)
 
     # Delete pssm dir after parsing output
     shutil.rmtree(pssm_dir)
@@ -257,7 +276,11 @@ def extract_features(output_file, sequence, idp_ranges):
         feat2vals[feat] = []
         values = aaindex[feat]['values']
         for aa in sequence:
-            feat2vals[feat].append(float(values.get(aa, MISSING_VAL)))
+            if aa in AMBIGUOUS_TO_POSSIBLE:
+                eprint("WARNING: Ambiguous amino acid " + aa + " in sequence, averaging properties of: " + "".join(AMBIGUOUS_TO_POSSIBLE[aa]))
+                feat2vals[feat].append(mean([float(values.get(ambig, 0)) for ambig in AMBIGUOUS_TO_POSSIBLE[aa]]))
+            else:
+                feat2vals[feat].append(float(values.get(aa, 0)))
 
     feature_dict = {
         # Class Labels
@@ -270,6 +293,7 @@ def extract_features(output_file, sequence, idp_ranges):
         # Sequence Features
         'position': positions,
         'sequence': list(sequence),
+        'sequence_length': [len(sequence)] * len(sequence),
     }
 
     for feat in features:
