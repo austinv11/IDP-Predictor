@@ -3,8 +3,9 @@ wget
 matplotlib
 statsmodels
 seaborn
-fastparquet
 pronto
+tqdm
+pyarrow
 
 # conda install -c bioconda blast
 # conda install -c bioconda cd-hit
