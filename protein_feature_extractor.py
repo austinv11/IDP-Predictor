@@ -14,7 +14,6 @@ import wget
 from aaindex.aaindex import aaindex
 
 AA_INDEX_AAs = "ALRKNMDFCPQSETGWHYIV"
-MISSING_VAL = "X"
 # https://en.wikipedia.org/wiki/FASTA_format#Sequence_representation
 AMBIGUOUS_TO_POSSIBLE = {
     "B": ['D', 'N'],

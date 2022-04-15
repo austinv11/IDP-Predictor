@@ -13,14 +13,17 @@ AAs = "?ARNDCQEGHILKMFPSTWYVBZX*-"
 
 
 class DatasetMode(Enum):
+    # Training dataset
     TRAIN = 0
+    # Validation dataset for parameters optimization
     VALIDATION = 1
+    # Test dataset for final evaluation
     TEST = 2
 
 
 class IdpDataset(Dataset):
 
-    def __init__(self, mode=DatasetMode.TRAIN):
+    def __init__(self, mode=DatasetMode.TRAIN, only_binary_labels=False):
         if mode == DatasetMode.TRAIN:
             self.directory = osp.join('dataset', 'train')
         elif mode == DatasetMode.VALIDATION:
@@ -29,6 +32,7 @@ class IdpDataset(Dataset):
             self.directory = osp.join('dataset', 'test')
         else:
             raise ValueError('Invalid mode')
+        self.only_binary_labels = only_binary_labels
         self.proteins = []
         for file in tqdm(os.listdir(self.directory), desc="Loading data from {}".format(self.directory)):
             if not file.endswith('.parquet'):
@@ -45,7 +49,7 @@ class IdpDataset(Dataset):
     def __getitem__(self, idx):
         df = self.proteins[idx]
 
-        labels = torch.from_numpy(df.loc[:, self.label_names].values)
+        labels = torch.from_numpy(df.loc[:, 'is_disordered' if self.only_binary_labels else self.label_names].values)
         feats = torch.from_numpy(df.loc[:, self.feat_names].values)
         return feats, labels
 
