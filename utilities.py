@@ -5,7 +5,7 @@ import torch
 from matplotlib import pyplot as plt
 
 
-def move_off_cpu(obj, fallback_to_dml=False):
+def move_off_cpu(obj, fallback_to_dml=True):
     if torch.cuda.is_available():
         # Try to move to CUDA
         return obj.to('cuda')

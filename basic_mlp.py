@@ -18,6 +18,8 @@ class BasicMLP(nn.Module):
         self.relu = nn.ReLU()
         self.sigmoid = nn.Sigmoid()
 
+        self.weight_init()
+
     def forward(self, x):
         # Embedding on just the first dimension
         letter_embedding = self.embedding(x[:, :, 0].int())
@@ -38,6 +40,18 @@ class BasicMLP(nn.Module):
         x = x.permute(1, 2, 0)
         return x
 
+    def weight_init(self, modules=None):
+        # This method is based on:
+        # https://gist.github.com/jeasinema/ed9236ce743c8efaf30fa2ff732749f5
+        for m in (modules or self.modules()):
+            # Linear init
+            if isinstance(m, nn.Linear):
+                nn.init.xavier_normal_(m.weight.data)
+                nn.init.normal_(m.bias.data)
+            # Recursive call for sub modules
+            elif isinstance(m, nn.Sequential):
+                self.weight_init(m)
+
 
 # Convenience function to calculate total testing loss and accuracy
 def calc_test_accuracy(model, test_loader, loss_fn):
@@ -47,6 +61,7 @@ def calc_test_accuracy(model, test_loader, loss_fn):
     total_size = 0
     # Test loop
     with torch.no_grad():
+        model.eval()
         for X, y in test_loader:
             # Move to GPU
             X, y = move_off_cpu(X), move_off_cpu(y).squeeze()
@@ -60,6 +75,7 @@ def calc_test_accuracy(model, test_loader, loss_fn):
             test_loss += loss.item()
             test_accuracy += (y_pred.round() == y).sum().item()
             total_size += y.size(0)
+        model.train()
 
     # Compute test loss and accuracy over all the batches
     test_loss /= len(test_loader)
@@ -68,9 +84,9 @@ def calc_test_accuracy(model, test_loader, loss_fn):
 
 
 def main():
-    epochs = 10
-    learning_rate = 1e-3
-    weight_decay = 1e-4
+    epochs = 100
+    learning_rate = 1e-4
+    weight_decay = 1e-3
     batch_size = 1  # Each individual protein sequence is a batch
 
     train_dataset = IdpDataset(only_binary_labels=True)
