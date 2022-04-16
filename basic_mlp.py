@@ -11,18 +11,20 @@ class BasicMLP(nn.Module):
     def __init__(self):
         super(BasicMLP, self).__init__()
 
-        self.embedding = nn.Embedding(len(AAs), 26)
-        self.fc1 = nn.Linear(26, 128)
-        self.fc2 = nn.Linear(128, 128)
+        self.embedding = nn.Embedding(len(AAs), 23)
+        self.fc1 = nn.Linear(109, 256)
+        self.fc2 = nn.Linear(256, 128)
         self.fc3 = nn.Linear(128, 1)
         self.relu = nn.ReLU()
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
         # Embedding on just the first dimension
-        letter_embedding = self.embedding(x[:, 0])
+        letter_embedding = self.embedding(x[:, :, 0].int())
         # Concatenate the letter embedding with the rest of the input
-        x = torch.cat((letter_embedding, x[:, 1:]), dim=1)
+        x = torch.cat((letter_embedding, x[:, :, 1:]), dim=2)
+        # Swap the first and second dimension (since we are using indiv sequences as batches)
+        x = x.permute(1, 0, 2).float()
         # Pass through the first hidden layer
         x = self.fc1(x)
         x = self.relu(x)
@@ -32,6 +34,8 @@ class BasicMLP(nn.Module):
         # Pass through the output layer
         x = self.fc3(x)
         x = self.sigmoid(x)
+        # Return to the correct dimensionality (batch first)
+        x = x.permute(1, 2, 0)
         return x
 
 
@@ -40,11 +44,12 @@ def calc_test_accuracy(model, test_loader, loss_fn):
     # Trackers
     test_accuracy = 0
     test_loss = 0
+    total_size = 0
     # Test loop
     with torch.no_grad():
         for X, y in test_loader:
             # Move to GPU
-            X, y = move_off_cpu(X), move_off_cpu(y)
+            X, y = move_off_cpu(X), move_off_cpu(y).squeeze()
 
             # Forward pass
             y_pred = model(X).squeeze()
@@ -54,22 +59,26 @@ def calc_test_accuracy(model, test_loader, loss_fn):
             # Compute test loss and accuracy
             test_loss += loss.item()
             test_accuracy += (y_pred.round() == y).sum().item()
+            total_size += y.size(0)
 
     # Compute test loss and accuracy over all the batches
     test_loss /= len(test_loader)
-    test_accuracy /= len(test_loader.dataset)
+    test_accuracy /= total_size
     return test_loss, test_accuracy
 
 
 def main():
-    epochs = 100
-    learning_rate = 1e-4
+    epochs = 10
+    learning_rate = 1e-3
     weight_decay = 1e-4
-    batch_size = 64
+    batch_size = 1  # Each individual protein sequence is a batch
 
     train_dataset = IdpDataset(only_binary_labels=True)
+    train_mean = train_dataset.normalization_means
+    train_std = train_dataset.normalization_stds
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    validation_dataset = IdpDataset(DatasetMode.VALIDATION, only_binary_labels=True)
+    validation_dataset = IdpDataset(DatasetMode.VALIDATION, only_binary_labels=True,
+                                    normalization_means=train_mean, normalization_stds=train_std)
     validation_loader = DataLoader(validation_dataset, batch_size=batch_size)
 
     # Move to GPU if available
@@ -94,10 +103,11 @@ def main():
         print(f"Epoch {epoch+1}/{epochs}")
         train_loss = 0
         train_acc = 0
+        total_size = 0
         # Batches
         for batch, (X, y) in enumerate(train_loader):
             # Move to GPU
-            X, y = move_off_cpu(X), move_off_cpu(y)
+            X, y = move_off_cpu(X), move_off_cpu(y).squeeze()
             # Clear gradients
             optimizer.zero_grad()
             # Forward pass
@@ -111,6 +121,7 @@ def main():
             # Compute training loss and accuracy
             train_loss += loss.item()
             train_acc += (y_pred.round() == y).sum().item()
+            total_size += y.size(0)
 
             # Print progress every 10 batches
             if batch % 100 == 0:
@@ -119,7 +130,7 @@ def main():
 
         # Compute training loss and accuracy per epoch
         train_loss /= len(train_loader)
-        train_acc /= len(train_loader.dataset)
+        train_acc /= total_size
         epoch2loss.append(train_loss)
         epoch2acc.append(train_acc)
 
