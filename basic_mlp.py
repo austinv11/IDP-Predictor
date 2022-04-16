@@ -2,7 +2,7 @@ import torch
 from torch.utils.data import DataLoader
 import torch.nn as nn
 
-from utilities import move_off_cpu, plot_loss_accuracy
+from utilities import move_off_cpu, plot_loss_accuracy, sliding_window
 from idp_dataset import IdpDataset, DatasetMode, AAs
 
 
@@ -12,9 +12,10 @@ class BasicMLP(nn.Module):
         super(BasicMLP, self).__init__()
 
         self.embedding = nn.Embedding(len(AAs), 23)
-        self.fc1 = nn.Linear(109, 256)
-        self.fc2 = nn.Linear(256, 128)
-        self.fc3 = nn.Linear(128, 1)
+        self.fc1 = nn.Linear(979, 512)
+        self.fc2 = nn.Linear(512, 256)
+        self.fc3 = nn.Linear(256, 128)
+        self.fc4 = nn.Linear(128, 1)
         self.relu = nn.ReLU()
         self.sigmoid = nn.Sigmoid()
 
@@ -33,8 +34,11 @@ class BasicMLP(nn.Module):
         # Pass through the second hidden layer
         x = self.fc2(x)
         x = self.relu(x)
-        # Pass through the output layer
+        # Pass through the thirds hidden layer
         x = self.fc3(x)
+        x = self.relu(x)
+        # Pass through the output layer
+        x = self.fc4(x)
         x = self.sigmoid(x)
         # Return to the correct dimensionality (batch first)
         x = x.permute(1, 2, 0)
@@ -54,7 +58,7 @@ class BasicMLP(nn.Module):
 
 
 # Convenience function to calculate total testing loss and accuracy
-def calc_test_accuracy(model, test_loader, loss_fn):
+def calc_test_accuracy(model, test_loader, loss_fn, window_size):
     # Trackers
     test_accuracy = 0
     test_loss = 0
@@ -65,6 +69,8 @@ def calc_test_accuracy(model, test_loader, loss_fn):
         for X, y in test_loader:
             # Move to GPU
             X, y = move_off_cpu(X), move_off_cpu(y).squeeze()
+
+            X = sliding_window(X, window_size)
 
             # Forward pass
             y_pred = model(X).squeeze()
@@ -84,9 +90,10 @@ def calc_test_accuracy(model, test_loader, loss_fn):
 
 
 def main():
-    epochs = 100
+    epochs = 20
     learning_rate = 1e-4
     weight_decay = 1e-3
+    window_size = 11
     batch_size = 1  # Each individual protein sequence is a batch
 
     train_dataset = IdpDataset(only_binary_labels=True)
@@ -124,12 +131,21 @@ def main():
         for batch, (X, y) in enumerate(train_loader):
             # Move to GPU
             X, y = move_off_cpu(X), move_off_cpu(y).squeeze()
-            # Clear gradients
-            optimizer.zero_grad()
+
+            # Expand features to follow a sliding window
+            X = sliding_window(X, window_size)
+
+            # Shuffle the windows
+            shuffled_indices = torch.randperm(X.size(1))
+            y = y[shuffled_indices]
+            X = X[:, shuffled_indices]
+
             # Forward pass
             y_pred = model(X).squeeze()
             # Compute loss
             loss = loss_fn(y_pred, y.float())
+            # Clear gradients
+            optimizer.zero_grad()
             # Backward pass
             loss.backward()
             # Update weights
@@ -157,7 +173,8 @@ def main():
         # To track progress
         test_loss, test_acc = calc_test_accuracy(model,
                                                  validation_loader,
-                                                 loss_fn)
+                                                 loss_fn,
+                                                 window_size)
         testepoch2loss.append(test_loss)
         testepoch2acc.append(test_acc)
 

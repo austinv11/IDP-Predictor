@@ -1,4 +1,5 @@
 import torch
+import torch.nn.functional as F
 
 
 # Move off the cpu when possible
@@ -55,3 +56,27 @@ def plot_loss_accuracy(epoch2losses, epoch2accs,
         plt.legend()
     plt.show()
     plt.clf()
+
+
+def sliding_window(tensor, window_size, dimension=1, stride=1, flatten=True):
+    """
+    Given a tensor, return a tensor of sliding windows centered on each position
+    https://stackoverflow.com/a/53972525/5179044
+    """
+    assert window_size % 2 == 1, "Window size must be odd"
+
+    # Since the window is centered on each position, we must pad the tensor
+    # with zeros to the left and right
+    padding = (window_size - 1) // 2
+
+    # Pad the tensor with zeros to the left and right
+    dims = list(tensor.size())
+    dims[dimension] = padding
+    zeros = tensor.new_zeros(dims)
+    padded = torch.cat([zeros, tensor, zeros], dim=dimension)
+
+    windows = padded.unfold(dimension, window_size, stride)
+    if flatten:
+        # Flatten the window dimension into the feature dimension
+        windows = windows.flatten(len(dims)-1)
+    return windows
