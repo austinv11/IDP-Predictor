@@ -18,6 +18,7 @@ class BasicMLP(nn.Module):
         self.fc4 = nn.Linear(128, 1)
         self.relu = nn.ReLU()
         self.sigmoid = nn.Sigmoid()
+        self.dropout = nn.Dropout(p=0.5)
 
         self.weight_init()
 
@@ -30,12 +31,15 @@ class BasicMLP(nn.Module):
         x = x.permute(1, 0, 2).float()
         # Pass through the first hidden layer
         x = self.fc1(x)
+        x = self.dropout(x)
         x = self.relu(x)
         # Pass through the second hidden layer
         x = self.fc2(x)
+        x = self.dropout(x)
         x = self.relu(x)
         # Pass through the thirds hidden layer
         x = self.fc3(x)
+        x = self.dropout(x)
         x = self.relu(x)
         # Pass through the output layer
         x = self.fc4(x)

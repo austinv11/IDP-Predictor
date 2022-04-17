@@ -6,6 +6,8 @@ seaborn
 pronto
 tqdm
 pyarrow
+pytorch
+torchvision
 
 # conda install -c bioconda blast
 # conda install -c bioconda cd-hit
