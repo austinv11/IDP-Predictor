@@ -6,7 +6,7 @@ import torch.nn.functional as F
 from matplotlib import pyplot as plt
 
 
-def move_off_cpu(obj, fallback_to_dml=True):
+def move_off_cpu(obj, fallback_to_dml=False):
     if torch.cuda.is_available():
         # Try to move to CUDA
         return obj.to('cuda')
@@ -58,7 +58,7 @@ def plot_loss_accuracy(epoch2losses, epoch2accs,
     plt.clf()
 
 
-def sliding_window(tensor, window_size, dimension=1, stride=1, flatten=True):
+def sliding_window(tensor, window_size, dimension=1, stride=1, flatten=True, centered=True):
     """
     Given a tensor, return a tensor of sliding windows centered on each position
     https://stackoverflow.com/a/53972525/5179044
@@ -67,13 +67,16 @@ def sliding_window(tensor, window_size, dimension=1, stride=1, flatten=True):
 
     # Since the window is centered on each position, we must pad the tensor
     # with zeros to the left and right
-    padding = (window_size - 1) // 2
+    padding = (window_size - 1) // (2 if centered else 1)
 
     # Pad the tensor with zeros to the left and right
     dims = list(tensor.size())
     dims[dimension] = padding
-    zeros = tensor.new_zeros(dims)
-    padded = torch.cat([zeros, tensor, zeros], dim=dimension)
+    if padding == 0:
+        padded = tensor
+    else:
+        zeros = tensor.new_zeros(dims)
+        padded = torch.cat([zeros, tensor, zeros], dim=dimension)
 
     windows = padded.unfold(dimension, window_size, stride)
     if flatten:

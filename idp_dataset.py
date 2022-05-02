@@ -9,7 +9,8 @@ import pandas as pd
 
 
 # Amino acid list based on: https://www.mathworks.com/help/bioinfo/ref/aa2int.html
-AAs = "?ARNDCQEGHILKMFPSTWYVBZX*-"
+AAs = {aa: index for index, aa in enumerate("-ARNDCQEGHILKMFPSTWYVBZX")}
+INDEX_TO_AA = {index: aa for index, aa in enumerate("-ARNDCQEGHILKMFPSTWYVBZX")}
 
 
 class DatasetMode(Enum):
@@ -23,8 +24,10 @@ class DatasetMode(Enum):
 
 class IdpDataset(Dataset):
 
-    def __init__(self, mode=DatasetMode.TRAIN, only_binary_labels=False,
-                 normalize_features=True, normalization_means=None, normalization_stds=None):
+    def __init__(self, mode=DatasetMode.TRAIN, only_binary_labels=True,
+                 only_sequences=False,
+                 normalize_features=True, normalization_means=None,
+                 normalization_stds=None):
         """
         Create the dataset assuming you have the dataset directory.
         NOTE: This currently does not work well with minibatches. So you must currently treat
@@ -44,6 +47,7 @@ class IdpDataset(Dataset):
         :param mode: The mode of the dataset (train, validation or test). Test should only be used for the final evaluation!
         :param only_binary_labels: If true, only return binary labels for the set (0 for ordered and 1 for disordered).
             if false, return a vector of labels for each protein (i.e. disordered binding domain, linker, etc).
+        :param only_sequences: If true, only return the sequences. If false, return the features as well.
         :param normalize_features: If true, make sure that features are normalized between 0 and 1.
         :param normalization_means: If the features are normalized and this is not the training set, provide a vector of
             means to use for normalization that reflect the normalized training set.
@@ -66,6 +70,7 @@ class IdpDataset(Dataset):
         self.normalize_features = normalize_features
         self.normalization_means = normalization_means
         self.normalization_stds = normalization_stds
+        self.only_sequences = only_sequences
 
         all_feat_tracker = None
         feats_to_norm = None
@@ -74,7 +79,7 @@ class IdpDataset(Dataset):
             if not file.endswith('.parquet'):
                 continue
             df = pd.read_parquet(osp.join(self.directory, file))
-            df['sequence'] = df['sequence'].apply(AAs.index)
+            df['sequence'] = df['sequence'].apply(lambda x: AAs.get(x.upper(), 0))
             # Move letter to be first column for conveinence
             df.insert(0, 'sequence', df.pop('sequence'))
             # Normalize position to be between 0 and 1
@@ -114,6 +119,10 @@ class IdpDataset(Dataset):
         df = self.proteins[idx]
 
         labels = self.df_to_tensor(df, 'is_disordered' if self.only_binary_labels else self.label_names)
+
+        if self.only_sequences:
+            return self.df_to_tensor(df, 'sequence'), labels
+
         feats = self.df_to_tensor(df, self.feat_names)
 
         # First two columns are the sequence and position, so normalize only the rest
@@ -127,5 +136,5 @@ class IdpDataset(Dataset):
 
 
 if __name__ == '__main__':
-    dataset = IdpDataset(DatasetMode.TRAIN)
+    dataset = IdpDataset(DatasetMode.TRAIN, only_sequences=True)
     print(dataset[0])
