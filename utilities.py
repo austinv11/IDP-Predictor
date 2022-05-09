@@ -83,3 +83,7 @@ def sliding_window(tensor, window_size, dimension=1, stride=1, flatten=True, cen
         # Flatten the window dimension into the feature dimension
         windows = windows.flatten(len(dims)-1)
     return windows
+
+
+def df_to_tensor(df, cols):
+    return torch.from_numpy(df.loc[:, cols].values)

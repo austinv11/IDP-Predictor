@@ -6,8 +6,14 @@ seaborn
 pronto
 tqdm
 pyarrow
-pytorch
+torch
 torchvision
+pytorch-lightning
+bio-embeddings[all]
+transformers
+wandb
+git+https://github.com/austinv11/hopfield-layers
+h5py
 
 # conda install -c bioconda blast
 # conda install -c bioconda cd-hit
