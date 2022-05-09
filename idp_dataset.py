@@ -3,7 +3,6 @@ import os
 import re
 from enum import Enum
 import os.path as osp
-import pickle
 
 import h5py
 import wget
@@ -66,7 +65,7 @@ class T5SequenceDataset(Dataset):
             if not osp.exists("Rostlab/prot_t5_xl_uniref50_local/config.json"):
                 wget.download('https://rostlab.org/~deepppi/protT5_xl_u50_encOnly_fp16_checkpoint/pytorch_model.bin', "Rostlab/prot_t5_xl_uniref50_local/pytorch_model.bin")
                 wget.download('https://rostlab.org/~deepppi/protT5_xl_u50_encOnly_fp16_checkpoint/config.json', "Rostlab/prot_t5_xl_uniref50_local/config.json")
-            self.encoder = T5EncoderModel.from_pretrained('Rostlab/prot_t5_xl_uniref50_local', torch_dtype="float16").eval().to(device)
+            self.encoder = T5EncoderModel.from_pretrained('Rostlab/prot_t5_xl_uniref50_local', torch_dtype=torch.float16).eval().to(device)
             gc.collect()
 
             sequences_and_labels = dict()
@@ -85,15 +84,16 @@ class T5SequenceDataset(Dataset):
                 # Replace ambiguous amino acids with 'X'
                 # Follows https://huggingface.co/Rostlab/prot_t5_xl_bfd preprocessing
                 sequence = df['sequence'].apply(lambda x: re.sub(r"[UZOB]", "X", x.upper())).values.tolist()
-                label = df_to_tensor(df, 'is_disordered')
+                label = df_to_tensor(df, 'is_disordered').detach()
 
                 seq_len = len(sequence)
                 if seq_len <= self.sequence_length:
                     sequences_and_labels[name] = (sequence, label)
                 else:
-                    # Sliding window
-                    for i in range(seq_len - self.sequence_length + 1):
-                        sequences_and_labels[name + '_' + str(i)] = (sequence[i:i + self.sequence_length], label[i:i + self.sequence_length])
+                    # Split into chunks of size self.sequence_length
+                    for i in range(0, seq_len, self.sequence_length):
+                        end = min(i + self.sequence_length, seq_len)
+                        sequences_and_labels[name + '_' + str(i)] = (sequence[i:end], label[i:end])
 
             # Make embeddings
             sorted_keys = list(sorted(sequences_and_labels.keys(), key=lambda x: len(sequences_and_labels[x][0]), reverse=True))
@@ -114,7 +114,7 @@ class T5SequenceDataset(Dataset):
 
                 with torch.no_grad():
                     embeddings = self.encoder(input_ids=token_ids, attention_mask=attention_mask)
-                embeddings = embeddings.last_hidden_state.cpu()
+                embeddings = embeddings.last_hidden_state.detach().cpu()
 
                 # Remove padding
                 for (key, seq_i, label) in zip(batch_keys, range(len(embeddings)), label_batch):
@@ -134,6 +134,7 @@ class T5SequenceDataset(Dataset):
         return embedding, label
 
     def save_embeddings(self, path: str):
+        #np.savez_compressed()
         exists = osp.exists(path)
         with h5py.File(path, "a") as hf:
             if not exists:
@@ -142,8 +143,8 @@ class T5SequenceDataset(Dataset):
             for (key, embeddings, labels) in self.embeddings_and_labels:
                 if exists and (key + "/labels") in hf:
                     continue
-                hf.create_dataset(key + "/embeddings", data=embeddings.numpy(), compression="gzip", chunks=True)
-                hf.create_dataset(key + "/labels", data=labels.numpy(), compression="gzip", chunks=True)
+                hf.create_dataset(key + "/embeddings", data=embeddings.numpy(), compression="gzip", chunks=True, compression_opts=9, shuffle=True)
+                hf.create_dataset(key + "/labels", data=labels.numpy(), compression="gzip", chunks=True, compression_opts=9, shuffle=True)
 
     @staticmethod
     def load_embeddings(path: str, partial_dataset: 'T5SequenceDataset' = None) -> 'T5SequenceDataset':
