@@ -58,12 +58,12 @@ def plot_loss_accuracy(epoch2losses, epoch2accs,
     plt.clf()
 
 
-def sliding_window(tensor, window_size, dimension=1, stride=1, flatten=True, centered=True):
+def sliding_window(tensor, window_size, dimension=1, stride=1, flatten=True, centered=True, fill=0, no_padding=False):
     """
     Given a tensor, return a tensor of sliding windows centered on each position
     https://stackoverflow.com/a/53972525/5179044
     """
-    assert window_size % 2 == 1, "Window size must be odd"
+    assert not centered or window_size % 2 == 1, "Window size must be odd"
 
     # Since the window is centered on each position, we must pad the tensor
     # with zeros to the left and right
@@ -72,17 +72,17 @@ def sliding_window(tensor, window_size, dimension=1, stride=1, flatten=True, cen
     # Pad the tensor with zeros to the left and right
     dims = list(tensor.size())
     dims[dimension] = padding
-    if padding == 0:
-        padded = tensor
+    if padding == 0 or (no_padding and tensor.shape[dimension] >= window_size):
+        padded = tensor.detach()
     else:
-        zeros = tensor.new_zeros(dims)
-        padded = torch.cat([zeros, tensor, zeros], dim=dimension)
+        zeros = tensor.new_zeros(dims) + fill
+        padded = torch.cat([zeros, tensor, zeros], dim=dimension).detach()
 
-    windows = padded.unfold(dimension, window_size, stride)
+    windows_tensor = padded.unfold(dimension, window_size, stride).movedim(len(tensor.shape), dimension+1)
     if flatten:
         # Flatten the window dimension into the feature dimension
-        windows = windows.flatten(len(dims)-1)
-    return windows
+        windows_tensor = windows_tensor.flatten(len(dims)-1)
+    return windows_tensor
 
 
 def df_to_tensor(df, cols):

@@ -3,6 +3,7 @@ import os
 import re
 from enum import Enum
 import os.path as osp
+from typing import Tuple, List
 
 import h5py
 import wget
@@ -12,7 +13,7 @@ import torch
 import pandas as pd
 from transformers import T5Tokenizer, T5EncoderModel
 
-from utilities import df_to_tensor
+from utilities import df_to_tensor, sliding_window
 
 _data_path = "dataset"
 
@@ -30,12 +31,18 @@ class DatasetMode(Enum):
     TEST = 2
 
 
-def get_sequence_loader(mode: DatasetMode = DatasetMode.TRAIN) -> DataLoader:
+def get_sequence_loader(mode: DatasetMode = DatasetMode.TRAIN, batch_size: int = 450) -> DataLoader:
     """
     Returns a dataset with only sequence data.
     :param mode: The mode of the dataset.
     """
-    return DataLoader(T5SequenceDataset(mode=mode), batch_size=128, shuffle=True)
+    dataset = T5SequenceDataset.load_remote_embeddings(mode)
+    return DataLoader(dataset, batch_size=batch_size, shuffle=mode == DatasetMode.TRAIN)
+
+
+TRAIN_EMBEDDINGS = "https://wcm.box.com/shared/static/uov7y3zhyz35n1b0s5u20wjpukk3epav.bin"
+TEST_EMBEDDINGS = "https://wcm.box.com/shared/static/bgdr859zs7xktbhey7gc4taptdmoskpv.bin"
+VALIDATION_EMBEDDINGS = "https://wcm.box.com/shared/static/zt1vkljzce4x63fl0fypy1ig2nehpb75.bin"
 
 
 class T5SequenceDataset(Dataset):
@@ -54,6 +61,9 @@ class T5SequenceDataset(Dataset):
         self.sequence_length = sequence_length
         self.filled_keys = []
         self.embeddings_and_labels = []
+        self._collapsed_cache = None
+        self._size = None
+        self._stride = 256  # Stride for sliding window
 
         if load_data:
             print("Loading tokenizer...")
@@ -69,7 +79,6 @@ class T5SequenceDataset(Dataset):
             gc.collect()
 
             sequences_and_labels = dict()
-            self.embeddings_and_labels = []
 
             if checkpoint_file is not None and osp.exists(checkpoint_file):
                 print("Loading checkpoint...")
@@ -126,15 +135,64 @@ class T5SequenceDataset(Dataset):
                 print("Saving embeddings...")
                 self.save_embeddings(checkpoint_file)
 
+    def _embedding_sliding_windows(self, embeddings: torch.Tensor, labels: torch.Tensor) -> List[Tuple[torch.Tensor, torch.Tensor]]:
+        embedding_windows = list(sliding_window(embeddings.to(torch.float32), self.sequence_length, dimension=0, flatten=False, centered=False, stride=self._stride, no_padding=True))
+        labels = list(sliding_window(labels, self.sequence_length, dimension=0, flatten=False, centered=False, fill=2, stride=self._stride, no_padding=True))
+        return list(zip(embedding_windows, labels))
+
+    def _collapse_split_embeddings(self) -> Tuple[int, List[Tuple[str, torch.Tensor, torch.Tensor]]]:
+        if self._collapsed_cache is not None:
+            return self._size, self._collapsed_cache
+
+        collapsed_embeddings_and_labels = []
+
+        curr_split_key = None
+        curr_split_data = []
+        for (key, embedding, label) in self.embeddings_and_labels:
+            if '_' in key:
+                orig_key = key.split('_')[0]
+                if curr_split_key is not None and curr_split_key != orig_key:
+                    concat_embeddings = torch.cat([x[0] for x in curr_split_data])
+                    concat_labels = torch.cat([x[1] for x in curr_split_data])
+                    collapsed_embeddings_and_labels.append((curr_split_key, concat_embeddings, concat_labels))
+                    curr_split_data = []
+
+                curr_split_data.append((embedding, label))
+                curr_split_key = orig_key
+
+            else:
+                collapsed_embeddings_and_labels.append((key, embedding, label))
+
+        if len(curr_split_data) > 0:
+            concat_embeddings = torch.cat([x[0] for x in curr_split_data])
+            concat_labels = torch.cat([x[1] for x in curr_split_data])
+            collapsed_embeddings_and_labels.append((curr_split_key, concat_embeddings, concat_labels))
+
+        self._collapsed_cache = collapsed_embeddings_and_labels
+        del self.embeddings_and_labels
+        gc.collect()
+
+        self._size = sum([x[1].shape[0]+(self.sequence_length // self._stride)-1 for x in collapsed_embeddings_and_labels])
+
+        return self._size, collapsed_embeddings_and_labels
+
     def __len__(self):
-        return len(self.embeddings_and_labels)
+        return self._collapse_split_embeddings()[0]
 
     def __getitem__(self, idx):
-        embedding, label = self.embeddings_and_labels[idx]
+        data_size, embeds = self._collapse_split_embeddings()
+
+        seq_index = idx // data_size
+        window_index = idx % (self.sequence_length // self._stride)
+
+        key, embedding, label = embeds[seq_index]
+
+        windows = self._embedding_sliding_windows(embedding, label)
+        embedding = windows[window_index][0]
+        label = windows[window_index][1]
         return embedding, label
 
     def save_embeddings(self, path: str):
-        #np.savez_compressed()
         exists = osp.exists(path)
         with h5py.File(path, "a") as hf:
             if not exists:
@@ -156,8 +214,8 @@ class T5SequenceDataset(Dataset):
             for key in hf.keys():
                 if key == "mode" or key == "sequence_length":
                     continue
-                embeddings = torch.from_numpy(hf[key + "/embeddings"][:])
-                labels = torch.from_numpy(hf[key + "/labels"][:])
+                embeddings = torch.from_numpy(hf[key + "/embeddings"][:]).detach()
+                labels = torch.from_numpy(hf[key + "/labels"][:]).detach()
                 embeddings_and_labels.append((key, embeddings, labels))
                 keys.append(key)
         if partial_dataset is not None:
@@ -168,6 +226,25 @@ class T5SequenceDataset(Dataset):
         dataset.embeddings_and_labels = embeddings_and_labels
         dataset.filled_keys = keys
         return dataset
+
+    @staticmethod
+    def load_remote_embeddings(mode: DatasetMode) -> 'T5SequenceDataset':
+        if mode == DatasetMode.TRAIN:
+            url = TRAIN_EMBEDDINGS
+            filename = "train_embeddings.h5"
+        elif mode == DatasetMode.VALIDATION:
+            url = VALIDATION_EMBEDDINGS
+            filename = "validation_embeddings.h5"
+        elif mode == DatasetMode.TEST:
+            url = TEST_EMBEDDINGS
+            filename = "test_embeddings.h5"
+
+        if not osp.exists(filename):
+            print(f"Downloading {filename} from {url}....")
+            wget.download(url, filename)
+
+        print("Reading embeddings...")
+        return T5SequenceDataset.load_embeddings(filename)
 
 
 class IdpDataset(Dataset):
@@ -279,8 +356,3 @@ class IdpDataset(Dataset):
                 feats[:, 2:] = (feats[:, 2:] - self.normalization_means) / self.normalization_stds
 
         return feats, labels
-
-
-if __name__ == '__main__':
-    dataset = IdpDataset(DatasetMode.TRAIN, only_sequences=True)
-    print(dataset[0])
