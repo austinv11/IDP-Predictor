@@ -9,7 +9,7 @@ pyarrow
 torch
 torchvision
 pytorch-lightning
-bio-embeddings[all]
+#bio-embeddings[all]
 transformers
 wandb
 git+https://github.com/austinv11/hopfield-layers

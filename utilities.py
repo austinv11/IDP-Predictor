@@ -76,7 +76,7 @@ def sliding_window(tensor, window_size, dimension=1, stride=1, flatten=True, cen
         padded = tensor.detach()
     else:
         zeros = tensor.new_zeros(dims) + fill
-        padded = torch.cat([zeros, tensor, zeros], dim=dimension).detach()
+        padded = torch.cat([zeros, tensor, zeros], dim=dimension)
 
     windows_tensor = padded.unfold(dimension, window_size, stride).movedim(len(tensor.shape), dimension+1)
     if flatten:

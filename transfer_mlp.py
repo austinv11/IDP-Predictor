@@ -2,12 +2,12 @@ import math
 
 import torch
 import wandb
-from pytorch_lightning.callbacks import EarlyStopping
+from pytorch_lightning.callbacks import EarlyStopping, StochasticWeightAveraging
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning import Trainer
 import pytorch_lightning as pl
 from torch import nn
-from torch.nn import CrossEntropyLoss
+from torch.nn import CrossEntropyLoss, MSELoss
 from torch.optim import AdamW, Adam
 from torchmetrics.functional import accuracy
 
@@ -31,11 +31,11 @@ class MLPNetwork(pl.LightningModule):
             layer_defs.append(nn.SELU())
             layer_defs.append(nn.Dropout(dropout))
 
-        layer_defs.append(nn.Linear(embed_dim*2 // layers, 3))
+        layer_defs.append(nn.Linear(embed_dim*2 // layers, 1))
         layer_defs.append(nn.Sigmoid())
 
         self.net = nn.Sequential(*layer_defs)
-        self.loss = CrossEntropyLoss()
+        self.loss = MSELoss()
 
         self.save_hyperparameters()
 
@@ -77,13 +77,10 @@ class MLPNetwork(pl.LightningModule):
 
     def _get_preds_loss_and_accuracy(self, batch):
         x, y = batch
-        y_hat = self(x)
-        y = y.view(-1)
-        y_hat = y_hat.view(-1, 3)
-        preds = torch.argmax(y_hat, dim=1)
+        y_hat = self(x).squeeze()
         loss = self.loss(y_hat, y)
-        acc = accuracy(preds, y)
-        return preds, loss, acc
+        acc = accuracy(y_hat, y.long())
+        return y_hat, loss, acc
 
     def configure_optimizers(self):
         if self.optimizer == "adamw":
@@ -117,13 +114,14 @@ val_loader = get_sequence_loader(DatasetMode.VALIDATION)
 
 
 def run_model(lr, weight_decay, layers, dropout, optimizer, accelerator="gpu"):
-    wandb_logger = WandbLogger(project="IDP-Predictor", name="mlp_network", log_model="all")
+    wandb_logger = WandbLogger(project="MLP-Predictor", name="mlp_network", log_model="all")
     # MLPNetwork.load_from_checkpoint('checkpoints/mlp_network.ckpt')
     # limit_train_batches=100, max_epochs=1,
     trainer = Trainer(logger=wandb_logger, accelerator=accelerator,
                       max_epochs=5,
                       default_root_dir='checkpoints/mlp_network', gpus=1,
-                      callbacks=[EarlyStopping(monitor="validation_loss", mode="min", patience=5, min_delta=0.001)],
+                      callbacks=[EarlyStopping(monitor="val_loss", mode="min", patience=5, min_delta=0.001),
+                                 StochasticWeightAveraging()],
                       auto_lr_find=False)
 
     # Found 0.001 as the best learning rate
@@ -194,9 +192,9 @@ def main():
     SWEEP = False
     if SWEEP:
         # Run once
-        sweep_id = wandb.sweep(sweep_config, project="IDP-Predictor")
+        sweep_id = wandb.sweep(sweep_config, project="MLP-Predictor")
         print("Sweep ID:", sweep_id)
-        wandb.agent(sweep_id, function=sweep_iteration, count=25)
+        wandb.agent(sweep_id, function=sweep_iteration, count=25, project="MLP-Predictor")
     else:
         run_model(lr=0.001, weight_decay=0.001, layers=2, dropout=0.0, optimizer="adam", accelerator="cpu")
 
