@@ -54,7 +54,11 @@ class IDPHopfieldNetwork(pl.LightningModule):
             layers.append(hopfield)
 
             for i in range(linear_layers):
-                layers.append(nn.Linear(self.window_size*hopfield.output_size, self.window_size*hopfield.output_size))
+                layers.append(nn.Flatten())
+                layers.append(nn.Linear(self.window_size*hopfield.output_size, self.window_size*2))
+                layers.append(nn.SELU())
+                layers.append(nn.Dropout(self.dropout))
+                layers.append(nn.Linear(self.window_size*2, self.window_size*hopfield.output_size))
                 layers.append(nn.SELU())
                 layers.append(nn.Dropout(self.dropout))
                 layers.append(nn.Unflatten(1, (self.window_size, hopfield.output_size)))

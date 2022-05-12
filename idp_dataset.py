@@ -58,7 +58,7 @@ class T5SequenceDataset(Dataset):
 
     def __init__(self, mode: DatasetMode = DatasetMode.TRAIN, sequence_length: int = 512, device: str = "cpu",
                  load_data: bool = True, checkpoint_file: str = None, masking_prob: float = 0,
-                 random_offset_size: float = 0):
+                 random_offset_size: float = 0, overlap: float = .9):
         if mode == DatasetMode.TRAIN:
             self.directory = osp.join(_data_path, 'train')
         elif mode == DatasetMode.VALIDATION:
@@ -73,10 +73,10 @@ class T5SequenceDataset(Dataset):
         self.random_offset_size = random_offset_size
         self.filled_keys = []
         self.embeddings_and_labels = []
+        self.window_overlap = overlap  # Overlap proportion for sliding window
         self._collapsed_cache = None
         self._size = None
-        self._seq_sizes = None
-        self._overlap = 0.6  # Overlap proportion for sliding window
+        self._window_count = None
 
         if load_data:
             print("Loading tokenizer...")
@@ -188,7 +188,7 @@ class T5SequenceDataset(Dataset):
         #self._seq_sizes = [0] + [x[1].shape[0]+(self.sequence_length // self._stride)-1 for x in collapsed_embeddings_and_labels]
         self._window_count = []
         for x in collapsed_embeddings_and_labels:
-            num_windows = math.ceil((x[1].shape[0] / self.sequence_length) / (1 - self._overlap))
+            num_windows = math.ceil((x[1].shape[0] / self.sequence_length) / (1 - self.window_overlap))
             self._window_count.append(num_windows)
         self._size = sum(self._window_count)
         self._window_count = np.cumsum(self._window_count)
@@ -203,11 +203,11 @@ class T5SequenceDataset(Dataset):
 
         # Guess the seq_index and backtrack
         seq_index = int(np.absolute(windows - idx).argmin())
-        if idx < windows[seq_index]-1:
+        if idx >= windows[seq_index]:
             seq_index -= 1
         # Select which window to use
         window_index = int(idx - (windows[seq_index]-1))
-        step_size = self.sequence_length / (1 - self._overlap)
+        step_size = self.sequence_length * (1 - self.window_overlap)
         # Recalculate considering the sequence length and overlap
         window_index = math.ceil(step_size * window_index)
 
