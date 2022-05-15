@@ -38,9 +38,10 @@ class IDPHopfieldNetwork(pl.LightningModule):
         self.weight_decay = weight_decay
         self.dropout = dropout
         self.optimizer = optimizer
+        self.n_heads = n_heads
         self.window_size = window_size+1  # +1 for start token
         self.embed_dim = int(embed_dim * dimension_reduction_factor)+1  # +1 for start token
-        self.n_heads = n_heads
+        self.embed_dim = self.embed_dim - (self.embed_dim % self.n_heads)
 
         activation_fn = nn.ReLU() if activation == "relu" else nn.Tanh()
 
@@ -195,6 +196,7 @@ def run_model(lr,
               random_offset_size,
               hopfield_layers,
               linear_layers,
+              n_heads,
               hopfield_type="association",
               dimension_reduction_factor=1.0,
               gradient_clipping=1.0,
@@ -234,7 +236,8 @@ def run_model(lr,
         hopfield_layers=hopfield_layers,
         hopfield_type=hopfield_type,
         linear_layers=linear_layers,
-        dimension_reduction_factor=dimension_reduction_factor
+        dimension_reduction_factor=dimension_reduction_factor,
+        n_heads=n_heads
     )
     wandb_logger.watch(model, log="all")
 
@@ -258,6 +261,7 @@ def sweep_iteration():
         linear_layers=wandb.config.linear_layers,
         gradient_clipping=wandb.config.gradient_clipping,
         dimension_reduction_factor=wandb.config.dimension_reduction_factor,
+        n_heads=wandb.config.n_heads
     )
 
 
@@ -273,6 +277,10 @@ def main():
             "window_size": {
                 # Choose from pre-defined values
                 "values": [8, 16, 32, 64]
+            },
+            "n_heads": {
+                # Choose from pre-defined values
+                "values": [1, 2, 4]
             },
             "dropout": {
                 # Choose from pre-defined values
@@ -335,7 +343,7 @@ def main():
     else:
         run_model(lr=0.0001, weight_decay=0.00001, dropout=0.0, activation="relu", optimizer="adamw", window_size=16,
                   random_offset_size=0.0, masking_prob=0.0, hopfield_layers=1, linear_layers=1, hopfield_type="association",
-                  accelerator="cpu", gradient_clipping=1.0, dimension_reduction_factor=0.25, wandb_enabled=False)
+                  accelerator="cpu", gradient_clipping=1.0, dimension_reduction_factor=0.25, n_heads=1, wandb_enabled=False)
 
 
 if __name__ == "__main__":

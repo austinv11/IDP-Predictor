@@ -58,7 +58,7 @@ class T5SequenceDataset(Dataset):
 
     def __init__(self, mode: DatasetMode = DatasetMode.TRAIN, sequence_length: int = 512, device: str = "cpu",
                  load_data: bool = True, checkpoint_file: str = None, masking_prob: float = 0,
-                 random_offset_size: float = 0, overlap: float = .75):
+                 random_offset_size: float = 0, overlap: float = .8):
         if mode == DatasetMode.TRAIN:
             self.directory = osp.join(_data_path, 'train')
         elif mode == DatasetMode.VALIDATION:
