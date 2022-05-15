@@ -247,15 +247,19 @@ class T5SequenceDataset(Dataset):
             masked_embeddings = torch.multinomial(torch.tensor([
                 1-self.masking_prob, self.masking_prob*.4, self.masking_prob*.4, self.masking_prob*.1, self.masking_prob*.1
             ]), num_samples=embedding.shape[0], replacement=True)
-            masked_neg1 = torch.argwhere(masked_embeddings == 1)
-            masked_1 = torch.argwhere(masked_embeddings == 2)
-            masked_0 = torch.argwhere(masked_embeddings == 3)
-            masked_rand = torch.argwhere(masked_embeddings == 4)
+            masked_neg1 = torch.argwhere(masked_embeddings == 1).flatten()
+            masked_1 = torch.argwhere(masked_embeddings == 2).flatten()
+            masked_0 = torch.argwhere(masked_embeddings == 3).flatten()
+            masked_rand = torch.argwhere(masked_embeddings == 4).flatten()
 
-            embedding.index_fill_(0, masked_neg1, -1.0)
-            embedding.index_fill_(0, masked_1, 1.0)
-            embedding.index_fill_(0, masked_0, 0.0)
-            embedding[masked_rand] = torch.distributions.uniform.Uniform(-1.0, 1.0).sample([masked_rand.shape[0], embedding.shape[1]])
+            if masked_neg1.shape[0] > 0:
+                embedding.index_fill_(0, masked_neg1, -1.0)
+            if masked_1.shape[0] > 0:
+                embedding.index_fill_(0, masked_1, 1.0)
+            if masked_0.shape[0] > 0:
+                embedding.index_fill_(0, masked_0, 0.0)
+            if masked_rand.shape[0] > 0:
+                embedding[masked_rand] = torch.distributions.uniform.Uniform(-1.0, 1.0).sample([masked_rand.shape[0], embedding.shape[1]])
 
         # Pad the embedding to the correct length
         zfill_size = self.sequence_length - embedding.shape[0]
@@ -336,7 +340,8 @@ class IdpDataset(Dataset):
 
     def __init__(self, mode=DatasetMode.TRAIN, only_binary_labels=True,
                  only_sequences=False,
-                 normalize_features=True, normalization_means=None,
+                 normalize_features=True,
+                 normalization_means=None,
                  normalization_stds=None):
         """
         Create the dataset assuming you have the dataset directory.

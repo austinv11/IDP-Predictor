@@ -1,17 +1,18 @@
 import math
 
+from torch.optim.swa_utils import SWALR
 import torch
-from hflayers import Hopfield, HopfieldPooling, HopfieldLayer
-from hflayers.transformer import HopfieldEncoderLayer, HopfieldDecoderLayer
-from positional_encodings import PositionalEncoding1D, Summer, PositionalEncoding2D
+from hflayers import Hopfield, HopfieldLayer
+from hflayers.transformer import HopfieldEncoderLayer
+from positional_encodings import PositionalEncoding1D, Summer
 import wandb
-from pytorch_lightning.callbacks import EarlyStopping, StochasticWeightAveraging
+from pytorch_lightning.callbacks import EarlyStopping, StochasticWeightAveraging, LearningRateMonitor
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning import Trainer
 import pytorch_lightning as pl
 from torch import nn
 from torch.nn import functional as F
-from torch.optim import AdamW, Adam
+from torch.optim import AdamW
 from torchmetrics.functional import accuracy
 
 from idp_dataset import get_sequence_loader, DatasetMode
@@ -31,7 +32,10 @@ class IDPHopfieldNetwork(pl.LightningModule):
                  linear_layers=1,
                  dimension_reduction_factor=1.0,
                  embed_dim=1024,
-                 n_heads=1):
+                 n_heads=1,
+                 swalr_lr=0.05,
+                 swalr_anneal='cos',
+                 swalr_epochs=10):
         super().__init__()
 
         self.lr = lr
@@ -39,6 +43,9 @@ class IDPHopfieldNetwork(pl.LightningModule):
         self.dropout = dropout
         self.optimizer = optimizer
         self.n_heads = n_heads
+        self.swalr_lr = swalr_lr
+        self.swalr_anneal = swalr_anneal
+        self.swalr_epochs = swalr_epochs
         self.window_size = window_size+1  # +1 for start token
         self.embed_dim = int(embed_dim * dimension_reduction_factor)+1  # +1 for start token
         self.embed_dim = self.embed_dim - (self.embed_dim % self.n_heads)
@@ -162,13 +169,15 @@ class IDPHopfieldNetwork(pl.LightningModule):
 
     def configure_optimizers(self):
         if self.optimizer == "adamw":
-            return AdamW(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
+            optimizer = AdamW(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
         elif self.optimizer == "sgd":
-            return torch.optim.SGD(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
+            optimizer = torch.optim.SGD(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
         elif self.optimizer == "adamax":
-            return torch.optim.Adamax(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
+            optimizer = torch.optim.Adamax(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
         else:
             raise ValueError("Unknown optimizer")
+        scheduler = SWALR(optimizer, swa_lr=self.swalr_lr, anneal_strategy=self.swalr_anneal, anneal_epochs=self.swalr_epochs)
+        return [optimizer], [scheduler]
 
 
 """
@@ -213,9 +222,9 @@ def run_model(lr,
     # limit_train_batches=100, max_epochs=1,
     trainer = Trainer(logger=wandb_logger, accelerator=accelerator,
                       max_epochs=5,
-                      default_root_dir='checkpoints/hopfield_network', gpus=0 if accelerator == "cpu" else 1,
+                      default_root_dir='checkpoints/hopfield_network', devices=None if accelerator == "cpu" else 1,
                       callbacks=[EarlyStopping(monitor="val_loss", mode="min", patience=5, min_delta=0.001),
-                                 StochasticWeightAveraging()],
+                                 StochasticWeightAveraging(), LearningRateMonitor(logging_interval='step')],
                       auto_lr_find=False, gradient_clip_val=gradient_clipping)
 
     # Found 0.001 as the best learning rate
@@ -246,7 +255,7 @@ def run_model(lr,
 
 
 def sweep_iteration():
-    #wandb.init()
+    wandb.init()
     run_model(
         lr=wandb.config.lr,
         weight_decay=wandb.config.weight_decay,
@@ -320,7 +329,7 @@ def main():
             },
             "lr": {
                 "distribution": "log_uniform",
-                "min": math.log(5e-5),
+                "min": math.log(5e-7),
                 "max": math.log(1e-1)
             },
             "weight_decay": {
