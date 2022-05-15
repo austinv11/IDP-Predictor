@@ -14,6 +14,7 @@ transformers
 wandb
 git+https://github.com/austinv11/hopfield-layers
 h5py
+positional-encodings
 
 # conda install -c bioconda blast
 # conda install -c bioconda cd-hit

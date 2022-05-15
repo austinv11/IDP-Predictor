@@ -58,7 +58,7 @@ class T5SequenceDataset(Dataset):
 
     def __init__(self, mode: DatasetMode = DatasetMode.TRAIN, sequence_length: int = 512, device: str = "cpu",
                  load_data: bool = True, checkpoint_file: str = None, masking_prob: float = 0,
-                 random_offset_size: float = 0, overlap: float = .9):
+                 random_offset_size: float = 0, overlap: float = .75):
         if mode == DatasetMode.TRAIN:
             self.directory = osp.join(_data_path, 'train')
         elif mode == DatasetMode.VALIDATION:
@@ -238,17 +238,36 @@ class T5SequenceDataset(Dataset):
         embedding = embedding[window_index:window_index + self.sequence_length]
         label = label[window_index:window_index + self.sequence_length]
 
+        if self.masking_prob > 0:
+            # Random masking
+            # 40% of the time we mask with -1s
+            # 40% of the time we mask with 1s
+            # 10% of the time we mask with 0s
+            # 10% of the time we mask with random values
+            masked_embeddings = torch.multinomial(torch.tensor([
+                1-self.masking_prob, self.masking_prob*.4, self.masking_prob*.4, self.masking_prob*.1, self.masking_prob*.1
+            ]), num_samples=embedding.shape[0], replacement=True)
+            masked_neg1 = torch.argwhere(masked_embeddings == 1)
+            masked_1 = torch.argwhere(masked_embeddings == 2)
+            masked_0 = torch.argwhere(masked_embeddings == 3)
+            masked_rand = torch.argwhere(masked_embeddings == 4)
+
+            embedding.index_fill_(0, masked_neg1, -1.0)
+            embedding.index_fill_(0, masked_1, 1.0)
+            embedding.index_fill_(0, masked_0, 0.0)
+            embedding[masked_rand] = torch.distributions.uniform.Uniform(-1.0, 1.0).sample([masked_rand.shape[0], embedding.shape[1]])
+
         # Pad the embedding to the correct length
         zfill_size = self.sequence_length - embedding.shape[0]
         if zfill_size > 0:
             embedding = torch.cat([embedding, torch.zeros([zfill_size, *embedding.shape[1:]])])
             label = torch.cat([label, torch.zeros([zfill_size])])
 
-        if self.masking_prob > 0:
-            # Random masking
-            masked = np.argwhere(np.random.binomial(1, self.masking_prob, embedding.shape[0]) == 1).flatten()
-            mask = torch.zeros(embedding.shape[1:])
-            embedding[masked] = mask
+        # Pad the embedding to the correct length
+        zfill_size = self.sequence_length - embedding.shape[0]
+        if zfill_size > 0:
+            embedding = torch.cat([embedding, torch.zeros([zfill_size, *embedding.shape[1:]])])
+            label = torch.cat([label, torch.zeros([zfill_size])])
 
         return embedding, label.to(torch.float32)
 
