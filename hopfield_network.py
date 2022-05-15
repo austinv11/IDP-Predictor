@@ -35,7 +35,7 @@ class IDPHopfieldNetwork(pl.LightningModule):
                  n_heads=1,
                  swalr_lr=0.05,
                  swalr_anneal='cos',
-                 swalr_epochs=10):
+                 swalr_epochs=5):
         super().__init__()
 
         self.lr = lr
