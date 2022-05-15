@@ -246,7 +246,7 @@ def run_model(lr,
 
 
 def sweep_iteration():
-    wandb.init()
+    #wandb.init()
     run_model(
         lr=wandb.config.lr,
         weight_decay=wandb.config.weight_decay,
@@ -300,7 +300,7 @@ def main():
             },
             "hopfield_layers": {
                 # Choose from pre-defined values
-                "values": [0, 2, 3]
+                "values": [1, 2, 3]
             },
             "hopfield_type": {
                 # Choose from pre-defined values
