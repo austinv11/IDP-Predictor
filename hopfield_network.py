@@ -181,7 +181,7 @@ class IDPHopfieldNetwork(pl.LightningModule):
         y_hat = self(x)
         loss = F.binary_cross_entropy(y_hat, y)
         acc = accuracy(y_hat.round(), y.to(torch.int32))
-        auc = auroc(y_hat.round(), y.to(torch.int32))
+        auc = auroc(y_hat.round().flatten(), y.to(torch.int32).flatten())
         return y_hat, loss, acc, auc
 
     def configure_optimizers(self):
@@ -335,7 +335,7 @@ def main():
     else:
         run_model(lr=0.0001, weight_decay=0.00001, dropout=0.0, optimizer="sgd", window_size=16,
                   random_offset_size=0.0, hopfield_layers=1, linear_layers=0, hopfield_type="encoder",
-                  accelerator="cpu", dimension_reduction_factor=0.25, n_heads=1, wandb_enabled=False)
+                  accelerator="gpu", dimension_reduction_factor=0.25, n_heads=1, wandb_enabled=False)
 
 
 if __name__ == "__main__":
