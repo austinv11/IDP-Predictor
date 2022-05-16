@@ -2,6 +2,10 @@ import math
 
 from torch.optim.swa_utils import SWALR
 import torch
+try:
+    torch.gelu = torch.nn.functional.gelu
+except AttributeError:
+    pass
 from hflayers import Hopfield, HopfieldLayer
 from hflayers.transformer import HopfieldEncoderLayer
 from positional_encodings import PositionalEncoding1D, Summer
@@ -24,7 +28,7 @@ class IDPHopfieldNetwork(pl.LightningModule):
                  lr=0.001,
                  weight_decay=0.001,
                  dropout=0.1,
-                 activation="relu",
+                 activation="gelu",
                  optimizer="adamw",
                  window_size=64,
                  hopfield_layers=1,
@@ -50,7 +54,7 @@ class IDPHopfieldNetwork(pl.LightningModule):
         self.embed_dim = int(embed_dim * dimension_reduction_factor)+1  # +1 for start token
         self.embed_dim = self.embed_dim - (self.embed_dim % self.n_heads)
 
-        activation_fn = nn.ReLU() if activation == "relu" else nn.Tanh()
+        activation_fn = nn.GELU() if activation == "gelu" else nn.Tanh()
 
         layers = list()
         # Initial convolution before hopfield network
@@ -62,6 +66,7 @@ class IDPHopfieldNetwork(pl.LightningModule):
         # Add Positional Encoding
         layers.append(Summer(PositionalEncoding1D(self.embed_dim)))
 
+        # TODO: Investigate value as connected: pattern_projection_as_connected
         for i in range(hopfield_layers):
             if hopfield_type == "association":
                 hopcls = Hopfield
@@ -286,15 +291,15 @@ def main():
         "parameters": {
             "window_size": {
                 # Choose from pre-defined values
-                "values": [8, 16, 32, 64]
+                "values": [16, 32]
             },
             "n_heads": {
                 # Choose from pre-defined values
-                "values": [1, 2, 4]
+                "values": [2, 3, 4, 5]
             },
             "dropout": {
                 # Choose from pre-defined values
-                "values": [0.25, 0.5]
+                "values": [0.3, 0.5]
             },
             "masking_prob": {
                 # Choose from pre-defined values
@@ -302,45 +307,45 @@ def main():
             },
             "random_offset_size": {
                 # Choose from pre-defined values
-                "values": [0.1, 0.25]
+                "values": [0.25, 0.5]
             },
             "activation": {
                 # Choose from pre-defined values
-                "values": ["relu", "tanh"]
+                "values": ["gelu", "tanh"]
             },
             "hopfield_layers": {
                 # Choose from pre-defined values
-                "values": [1, 2, 3]
+                "values": [1, 3]
             },
             "hopfield_type": {
                 # Choose from pre-defined values
-                "values": ["association", "layer", "encoder"]#, "decoder" "transformer"]
+                "values": ["association", "encoder"]#, "decoder" "transformer"]
             },
             "linear_layers": {
                 # Choose from pre-defined values
-                "values": [0, 1, 2]
+                "values": [0, 1]
             },
             "gradient_clipping": {
                 # Choose from pre-defined values
-                "values": [0.5, 1.0, 2]
+                "values": [1.0, 2]
             },
             "dimension_reduction_factor": {
                 # Choose from pre-defined values
-                "values": [1, 0.75, 0.5, 0.25]
+                "values": [1, 0.75]
             },
             "lr": {
                 "distribution": "log_uniform",
-                "min": math.log(5e-7),
+                "min": math.log(5e-4),
                 "max": math.log(1e-1)
             },
             "weight_decay": {
                 "distribution": "log_uniform",
-                "min": math.log(1e-10),
+                "min": math.log(1e-8),
                 "max": math.log(1e-4)
             },
             "optimizer": {
                 # Choose from pre-defined values
-                "values": ["adamw", "sgd", "adamax"]
+                "values": ["sgd", "adamax"]
             }
         }
     }
@@ -351,7 +356,7 @@ def main():
         print("Sweep ID:", sweep_id)
         wandb.agent(sweep_id, function=sweep_iteration, count=25, project="IDP-Predictor")
     else:
-        run_model(lr=0.0001, weight_decay=0.00001, dropout=0.0, activation="relu", optimizer="adamw", window_size=16,
+        run_model(lr=0.0001, weight_decay=0.00001, dropout=0.0, activation="gelu", optimizer="adamw", window_size=16,
                   random_offset_size=0.0, masking_prob=0.0, hopfield_layers=1, linear_layers=1, hopfield_type="association",
                   accelerator="cpu", gradient_clipping=1.0, dimension_reduction_factor=0.25, n_heads=1, wandb_enabled=False)
 
