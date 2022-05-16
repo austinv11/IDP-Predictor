@@ -34,8 +34,8 @@ class DatasetMode(Enum):
 
 
 def get_sequence_loader(mode: DatasetMode = DatasetMode.TRAIN,
-                        batch_size: int = 128,
-                        window_size: int = 256,
+                        batch_size: int = 16,
+                        window_size: int = 20,
                         masking_prob: float = 0.1,
                         random_offset_size: float = 0.2) -> DataLoader:
     """
@@ -73,7 +73,7 @@ class T5SequenceDataset(Dataset):
         self.random_offset_size = random_offset_size
         self.filled_keys = []
         self.embeddings_and_labels = []
-        self.window_overlap = overlap  # Overlap proportion for sliding window
+        self.window_overlap = overlap if mode == DatasetMode.TRAIN else 0.0  # Overlap proportion for sliding window
         self._collapsed_cache = None
         self._size = None
         self._window_count = None

@@ -10,7 +10,7 @@ from hflayers import Hopfield, HopfieldLayer
 from hflayers.transformer import HopfieldEncoderLayer
 from positional_encodings import PositionalEncoding1D, Summer
 import wandb
-from pytorch_lightning.callbacks import EarlyStopping, StochasticWeightAveraging, LearningRateMonitor
+from pytorch_lightning.callbacks import EarlyStopping, StochasticWeightAveraging, LearningRateMonitor, ModelCheckpoint
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning import Trainer
 import pytorch_lightning as pl
@@ -27,19 +27,20 @@ class IDPHopfieldNetwork(pl.LightningModule):
     def __init__(self,
                  lr=0.001,
                  weight_decay=0.001,
-                 dropout=0.1,
-                 activation="gelu",
-                 optimizer="adamw",
-                 window_size=64,
-                 hopfield_layers=1,
-                 hopfield_type="association",
-                 linear_layers=1,
+                 dropout=0.35,
+                 optimizer="sgd",
+                 window_size=16,
+                 hopfield_layers=4,
+                 hopfield_type="encoder",
+                 linear_layers=0,
                  dimension_reduction_factor=1.0,
                  embed_dim=1024,
-                 n_heads=1,
-                 swalr_lr=0.05,
+                 n_heads=4,
+                 connect_pattern_projection=False,
+                 norm_hopfield_space=False,
+                 swalr_lr=0.01,
                  swalr_anneal='cos',
-                 swalr_epochs=5):
+                 swalr_epochs=3):
         super().__init__()
 
         self.lr = lr
@@ -54,7 +55,7 @@ class IDPHopfieldNetwork(pl.LightningModule):
         self.embed_dim = int(embed_dim * dimension_reduction_factor)+1  # +1 for start token
         self.embed_dim = self.embed_dim - (self.embed_dim % self.n_heads)
 
-        activation_fn = nn.GELU() if activation == "gelu" else nn.Tanh()
+        activation_fn = nn.GELU()
 
         layers = list()
         # Initial convolution before hopfield network
@@ -66,7 +67,6 @@ class IDPHopfieldNetwork(pl.LightningModule):
         # Add Positional Encoding
         layers.append(Summer(PositionalEncoding1D(self.embed_dim)))
 
-        # TODO: Investigate value as connected: pattern_projection_as_connected
         for i in range(hopfield_layers):
             if hopfield_type == "association":
                 hopcls = Hopfield
@@ -78,21 +78,25 @@ class IDPHopfieldNetwork(pl.LightningModule):
             if hopcls is not None:
                 hopfield = hopcls(
                     input_size=self.embed_dim,
-                    association_activation=activation,
+                    association_activation="gelu",
                     dropout=dropout,
-                    num_heads=self.n_heads
+                    num_heads=self.n_heads,
+                    normalize_hopfield_space=norm_hopfield_space,
+                    pattern_projection_as_connected=connect_pattern_projection
                 )
             else:
                 hopfield = HopfieldEncoderLayer(
                     hopfield_association=Hopfield(
                         input_size=self.embed_dim,
-                        association_activation=activation,
+                        association_activation="gelu",
                         dropout=dropout,
-                        num_heads=self.n_heads
+                        num_heads=self.n_heads,
+                        normalize_hopfield_space=norm_hopfield_space,
+                        pattern_projection_as_connected=connect_pattern_projection
                     ),
                     dim_feedforward=self.embed_dim*2,
                     dropout=dropout,
-                    activation=activation
+                    activation="gelu"
                 )
             layers.append(hopfield)
 
@@ -140,29 +144,36 @@ class IDPHopfieldNetwork(pl.LightningModule):
         return self._remove_start_token(self.projection_layers(mapping))
 
     def training_step(self, batch, batch_idx):
-        #if self.trainer.global_step == 0:
-        #    wandb.define_metric('train_accuracy', summary='max')
+        if self.trainer.global_step == 0:
+           wandb.define_metric('train_aucroc', summary='mean', goal="maximize")
 
-        preds, loss, acc = self._get_preds_loss_and_accuracy(batch)
+        preds, loss, acc, auc = self._get_preds_loss_and_accuracy(batch)
 
         self.log('train_loss', loss)
         self.log('train_accuracy', acc)
+        self.log('train_aucroc', auc)
         return loss
 
     def validation_step(self, batch, batch_idx):
-        #if self.trainer.global_step == 0:
-        #    wandb.define_metric('val_accuracy', summary='max')
+        if self.trainer.global_step == 0:
+           wandb.define_metric('val_aucroc', summary='mean', goal="maximize")
 
-        preds, loss, acc = self._get_preds_loss_and_accuracy(batch)
+        preds, loss, acc, auc = self._get_preds_loss_and_accuracy(batch)
 
         self.log('val_loss', loss)
         self.log('val_accuracy', acc)
+        self.log('val_aucroc', auc)
         return loss
 
     def test_step(self, batch, batch_idx):
-        preds, loss, acc = self._get_preds_loss_and_accuracy(batch)
+        if self.trainer.global_step == 0:
+           wandb.define_metric('test_aucroc', summary='mean', goal="maximize")
+
+        preds, loss, acc, auc = self._get_preds_loss_and_accuracy(batch)
+
         self.log('test_loss', loss)
         self.log('test_accuracy', acc)
+        self.log('val_aucroc', auc)
         return loss
 
     def _get_preds_loss_and_accuracy(self, batch):
@@ -170,8 +181,8 @@ class IDPHopfieldNetwork(pl.LightningModule):
         y_hat = self(x)
         loss = F.binary_cross_entropy(y_hat, y)
         acc = accuracy(y_hat.round(), y.to(torch.int32))
-        # TODO: auroc metric
-        return y_hat, loss, acc
+        auc = auroc(y_hat.round(), y.to(torch.int32))
+        return y_hat, loss, acc, auc
 
     def configure_optimizers(self):
         if self.optimizer == "adamw":
@@ -203,35 +214,44 @@ print(met.metrics_report())
 
 def run_model(lr,
               weight_decay,
-              dropout,
-              optimizer,
-              activation,
-              window_size,
-              masking_prob,
-              random_offset_size,
-              hopfield_layers,
-              linear_layers,
-              n_heads,
-              hopfield_type="association",
+              random_offset_size=0.25,
+              linear_layers=0,
+              optimizer="sgd",
+              window_size=16,
+              dropout=0.35,
+              hopfield_layers=4,
+              n_heads=4,
+              hopfield_type="encoder",
               dimension_reduction_factor=1.0,
-              gradient_clipping=1.0,
+              connect_pattern_projection=False,
+              norm_hopfield_space=False,
               accelerator="gpu",
               wandb_enabled=True):
     kwargs = dict()
     if not wandb_enabled:
         kwargs["mode"] = "disabled"
     train_loader = get_sequence_loader(DatasetMode.TRAIN, window_size=window_size,
-                                       masking_prob=masking_prob, random_offset_size=random_offset_size)
+                                       masking_prob=0.2, random_offset_size=random_offset_size)
     val_loader = get_sequence_loader(DatasetMode.VALIDATION, window_size=window_size)
     wandb_logger = WandbLogger(project="IDP-Predictor", name="hopfield_network", log_model="all", **kwargs)
     # MLPNetwork.load_from_checkpoint('checkpoints/mlp_network.ckpt')
     # limit_train_batches=100, max_epochs=1,
+    checkpoint_callback = ModelCheckpoint(
+                                     dirpath='checkpoints/hopfield_network',
+                                     monitor='val_loss',
+                                     verbose=True,
+                                     save_last=True,
+                                     save_top_k=3,
+                                     mode='min',
+                                     auto_insert_metric_name=True)
     trainer = Trainer(logger=wandb_logger, accelerator=accelerator,
-                      max_epochs=5,
+                      max_epochs=3, enable_checkpointing=True,
                       default_root_dir='checkpoints/hopfield_network', devices=None if accelerator == "cpu" else 1,
                       callbacks=[EarlyStopping(monitor="val_loss", mode="min", patience=5, min_delta=0.001),
-                                 StochasticWeightAveraging(), LearningRateMonitor(logging_interval='step')],
-                      auto_lr_find=False, gradient_clip_val=gradient_clipping)
+                                 StochasticWeightAveraging(),
+                                 LearningRateMonitor(logging_interval='step'),
+                                 checkpoint_callback],
+                      auto_lr_find=False, gradient_clip_val=1.0)
 
     # Found 0.001 as the best learning rate
     # print("Tuning...")
@@ -245,19 +265,26 @@ def run_model(lr,
         lr=lr,
         weight_decay=weight_decay,
         dropout=dropout,
-        activation=activation,
         optimizer=optimizer,
         window_size=window_size,
         hopfield_layers=hopfield_layers,
         hopfield_type=hopfield_type,
         linear_layers=linear_layers,
         dimension_reduction_factor=dimension_reduction_factor,
-        n_heads=n_heads
+        n_heads=n_heads,
+        connect_pattern_projection=connect_pattern_projection,
+        norm_hopfield_space=norm_hopfield_space
     )
     wandb_logger.watch(model, log="all")
 
     trainer.fit(model, train_dataloaders=train_loader, val_dataloaders=val_loader)
-    #trainer.test(model, dataloaders=get_sequence_loader(DatasetMode.TEST))
+
+    print("=====TRAINING COMPLETED=====")
+    print(f"Best model: {checkpoint_callback.best_model_path}")
+    print(f"Best model val_loss: {checkpoint_callback.best_model_score}")
+
+    print("=====TESTING=====")
+    trainer.test(ckpt_path="best", dataloaders=get_sequence_loader(DatasetMode.TEST))
 
 
 def sweep_iteration():
@@ -265,18 +292,8 @@ def sweep_iteration():
     run_model(
         lr=wandb.config.lr,
         weight_decay=wandb.config.weight_decay,
-        window_size=wandb.config.window_size,
-        dropout=wandb.config.dropout,
-        activation=wandb.config.activation,
-        optimizer=wandb.config.optimizer,
-        masking_prob=wandb.config.masking_prob,
-        random_offset_size=wandb.config.random_offset_size,
-        hopfield_layers=wandb.config.hopfield_layers,
-        hopfield_type=wandb.config.hopfield_type,
-        linear_layers=wandb.config.linear_layers,
-        gradient_clipping=wandb.config.gradient_clipping,
-        dimension_reduction_factor=wandb.config.dimension_reduction_factor,
-        n_heads=wandb.config.n_heads
+        norm_hopfield_space=(wandb.config.norm_hopfield_space == 1),
+        connect_pattern_projection=(wandb.config.connect_pattern_projection == 1)
     )
 
 
@@ -289,63 +306,23 @@ def main():
             "goal": "minimize"
         },
         "parameters": {
-            "window_size": {
-                # Choose from pre-defined values
-                "values": [16, 32]
-            },
-            "n_heads": {
-                # Choose from pre-defined values
-                "values": [2, 3, 4, 5]
-            },
-            "dropout": {
-                # Choose from pre-defined values
-                "values": [0.3, 0.5]
-            },
-            "masking_prob": {
-                # Choose from pre-defined values
-                "values": [0.05, 0.15]
-            },
-            "random_offset_size": {
-                # Choose from pre-defined values
-                "values": [0.25, 0.5]
-            },
-            "activation": {
-                # Choose from pre-defined values
-                "values": ["gelu", "tanh"]
-            },
-            "hopfield_layers": {
-                # Choose from pre-defined values
-                "values": [1, 3]
-            },
-            "hopfield_type": {
-                # Choose from pre-defined values
-                "values": ["association", "encoder"]#, "decoder" "transformer"]
-            },
-            "linear_layers": {
-                # Choose from pre-defined values
-                "values": [0, 1]
-            },
-            "gradient_clipping": {
-                # Choose from pre-defined values
-                "values": [1.0, 2]
-            },
-            "dimension_reduction_factor": {
-                # Choose from pre-defined values
-                "values": [1, 0.75]
-            },
             "lr": {
                 "distribution": "log_uniform",
-                "min": math.log(5e-4),
+                "min": math.log(5e-5),
                 "max": math.log(1e-1)
             },
             "weight_decay": {
                 "distribution": "log_uniform",
                 "min": math.log(1e-8),
-                "max": math.log(1e-4)
+                "max": math.log(1e-5)
             },
-            "optimizer": {
+            "norm_hopfield_space": {
                 # Choose from pre-defined values
-                "values": ["sgd", "adamax"]
+                "values": [1, 0]
+            },
+            "connect_pattern_projection": {
+                # Choose from pre-defined values
+                "values": [1, 0]
             }
         }
     }
@@ -356,9 +333,9 @@ def main():
         print("Sweep ID:", sweep_id)
         wandb.agent(sweep_id, function=sweep_iteration, count=25, project="IDP-Predictor")
     else:
-        run_model(lr=0.0001, weight_decay=0.00001, dropout=0.0, activation="gelu", optimizer="adamw", window_size=16,
-                  random_offset_size=0.0, masking_prob=0.0, hopfield_layers=1, linear_layers=1, hopfield_type="association",
-                  accelerator="cpu", gradient_clipping=1.0, dimension_reduction_factor=0.25, n_heads=1, wandb_enabled=False)
+        run_model(lr=0.0001, weight_decay=0.00001, dropout=0.0, optimizer="sgd", window_size=16,
+                  random_offset_size=0.0, hopfield_layers=1, linear_layers=0, hopfield_type="encoder",
+                  accelerator="cpu", dimension_reduction_factor=0.25, n_heads=1, wandb_enabled=False)
 
 
 if __name__ == "__main__":
