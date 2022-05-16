@@ -13,7 +13,7 @@ import pytorch_lightning as pl
 from torch import nn
 from torch.nn import functional as F
 from torch.optim import AdamW
-from torchmetrics.functional import accuracy
+from torchmetrics.functional import accuracy, auroc
 
 from idp_dataset import get_sequence_loader, DatasetMode
 
@@ -165,6 +165,7 @@ class IDPHopfieldNetwork(pl.LightningModule):
         y_hat = self(x)
         loss = F.binary_cross_entropy(y_hat, y)
         acc = accuracy(y_hat.round(), y.to(torch.int32))
+        # TODO: auroc metric
         return y_hat, loss, acc
 
     def configure_optimizers(self):
