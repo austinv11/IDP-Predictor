@@ -217,10 +217,10 @@ def run_model(lr,
               random_offset_size=0.25,
               linear_layers=1,
               optimizer="sgd",
-              window_size=23,
+              window_size=7,
               dropout=0.35,
               hopfield_layers=1,
-              n_heads=3,
+              n_heads=2,
               hopfield_type="encoder",
               dimension_reduction_factor=1.0,
               connect_pattern_projection=False,
@@ -246,7 +246,7 @@ def run_model(lr,
                                      auto_insert_metric_name=True)
     trainer = Trainer(logger=wandb_logger, accelerator=accelerator,
                       max_epochs=15, enable_checkpointing=True,
-                      default_root_dir='checkpoints/hopfield_network', devices=None if accelerator == "cpu" else 1,
+                      default_root_dir='checkpoints/hopfield_network', devices=1,
                       callbacks=[EarlyStopping(monitor="val_loss", mode="min", patience=5, min_delta=0.001),
                                  StochasticWeightAveraging(),
                                  LearningRateMonitor(logging_interval='step'),
@@ -284,7 +284,7 @@ def run_model(lr,
     print(f"Best model val_loss: {checkpoint_callback.best_model_score}")
 
     print("=====TESTING=====")
-    trainer.test(ckpt_path="best", dataloaders=get_sequence_loader(DatasetMode.TEST))
+    trainer.test(ckpt_path="best", dataloaders=get_sequence_loader(DatasetMode.TEST, window_size=window_size))
 
 
 def sweep_iteration():
@@ -327,6 +327,7 @@ def main():
         }
     }
     SWEEP = False
+    wandb.login(key="ff1644679b60acc24b1b92114917331b7aa054b1")
     if SWEEP:
         # Run once
         sweep_id = wandb.sweep(sweep_config, project="IDP-Predictor")
