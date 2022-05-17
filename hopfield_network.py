@@ -30,7 +30,7 @@ class IDPHopfieldNetwork(pl.LightningModule):
                  dropout=0.35,
                  optimizer="sgd",
                  window_size=16,
-                 hopfield_layers=4,
+                 hopfield_layers=3,
                  hopfield_type="encoder",
                  linear_layers=0,
                  dimension_reduction_factor=1.0,
@@ -58,14 +58,14 @@ class IDPHopfieldNetwork(pl.LightningModule):
         activation_fn = nn.GELU()
 
         layers = list()
+        # Add Positional Encoding
+        layers.append(Summer(PositionalEncoding1D(embed_dim+1)))
         # Initial convolution before hopfield network
         layers.append(nn.Flatten())
         layers.append(nn.Linear(self.window_size*(embed_dim+1), self.window_size*self.embed_dim))
         layers.append(activation_fn)
         layers.append(nn.Dropout(self.dropout))
         layers.append(nn.Unflatten(1, (self.window_size, self.embed_dim)))
-        # Add Positional Encoding
-        layers.append(Summer(PositionalEncoding1D(self.embed_dim)))
 
         for i in range(hopfield_layers):
             if hopfield_type == "association":
@@ -215,12 +215,12 @@ print(met.metrics_report())
 def run_model(lr,
               weight_decay,
               random_offset_size=0.25,
-              linear_layers=0,
+              linear_layers=1,
               optimizer="sgd",
-              window_size=16,
+              window_size=23,
               dropout=0.35,
-              hopfield_layers=4,
-              n_heads=4,
+              hopfield_layers=1,
+              n_heads=3,
               hopfield_type="encoder",
               dimension_reduction_factor=1.0,
               connect_pattern_projection=False,
@@ -245,7 +245,7 @@ def run_model(lr,
                                      mode='min',
                                      auto_insert_metric_name=True)
     trainer = Trainer(logger=wandb_logger, accelerator=accelerator,
-                      max_epochs=3, enable_checkpointing=True,
+                      max_epochs=15, enable_checkpointing=True,
                       default_root_dir='checkpoints/hopfield_network', devices=None if accelerator == "cpu" else 1,
                       callbacks=[EarlyStopping(monitor="val_loss", mode="min", patience=5, min_delta=0.001),
                                  StochasticWeightAveraging(),
@@ -333,9 +333,12 @@ def main():
         print("Sweep ID:", sweep_id)
         wandb.agent(sweep_id, function=sweep_iteration, count=25, project="IDP-Predictor")
     else:
-        run_model(lr=0.0001, weight_decay=0.00001, dropout=0.0, optimizer="sgd", window_size=16,
-                  random_offset_size=0.0, hopfield_layers=1, linear_layers=0, hopfield_type="encoder",
-                  accelerator="gpu", dimension_reduction_factor=0.25, n_heads=1, wandb_enabled=False)
+        run_model(
+            lr=0.0005,
+            weight_decay=0.000001,
+            norm_hopfield_space=False,
+            connect_pattern_projection=False
+        )
 
 
 if __name__ == "__main__":

@@ -34,7 +34,7 @@ class DatasetMode(Enum):
 
 
 def get_sequence_loader(mode: DatasetMode = DatasetMode.TRAIN,
-                        batch_size: int = 16,
+                        batch_size: int = 128,
                         window_size: int = 20,
                         masking_prob: float = 0.1,
                         random_offset_size: float = 0.2) -> DataLoader:
