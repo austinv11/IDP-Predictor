@@ -131,7 +131,26 @@ def make_secondary_structs(sequence):
         print("Downloading S4PRED weights...")
         wget.download("http://bioinfadmin.cs.ucl.ac.uk/downloads/s4pred/weights.tar.gz", osp.join("s4pred-main", "weights.tar.gz"))
         with tarfile.open(osp.join("s4pred-main", "weights.tar.gz"), "r:gz") as tar:
-            tar.extractall("s4pred-main")
+            def is_within_directory(directory, target):
+                
+                abs_directory = os.path.abspath(directory)
+                abs_target = os.path.abspath(target)
+            
+                prefix = os.path.commonprefix([abs_directory, abs_target])
+                
+                return prefix == abs_directory
+            
+            def safe_extract(tar, path=".", members=None, *, numeric_owner=False):
+            
+                for member in tar.getmembers():
+                    member_path = os.path.join(path, member.name)
+                    if not is_within_directory(path, member_path):
+                        raise Exception("Attempted Path Traversal in Tar File")
+            
+                tar.extractall(path, members, numeric_owner=numeric_owner) 
+                
+            
+            safe_extract(tar, "s4pred-main")
         os.remove(osp.join("s4pred-main", "weights.tar.gz"))
 
     timestamp = time.time()
